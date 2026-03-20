@@ -147,14 +147,16 @@
           };
 
           try {
+            // Removido o mode: 'no-cors' para permitir que o navegador valide o CORS corretamente no Worker
             await fetch(BACKEND_URL, {
               method: 'POST',
-              mode: 'no-cors', 
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload),
               keepalive: true
             });
-          } catch (err) { console.error("Atria Pixel Error:", err); }
+          } catch (err) { 
+            console.error("Atria Pixel Error:", err); 
+          }
         };
 
         window.addEventListener('load', () => sendEvent('pageview'));
