@@ -5,10 +5,9 @@
 //            /admin/feedbacks  /admin/stats  /admin/usuarios
 //            /brain/index  /brain/query  /brain/status
 //            /brain/files  /brain/files/:id  /brain/files/:id/restore
-//            /gerar-imagem  (Nano Banana)
+//            /gerar-imagem  (Flux.1 Schnell - Cloudflare Workers AI)
 // Bindings:  DB (D1) | AI | CACHE (KV) | VECTORIZE | BRAIN_FILES (R2)
 //            ANTHROPIC_API_KEY | MP_ACCESS_TOKEN | KIWIFY_WEBHOOK_TOKEN
-//            NANO_BANANA_API_KEY
 // ═══════════════════════════════════════════════════════════════════
 
 const CORS = {
@@ -229,88 +228,46 @@ async function arquivarArquivosInativos(env) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// NANO BANANA — Geração de Imagens (CORRIGIDO)
+// FLUX.1 SCHNELL — Geração de Imagens (Cloudflare Workers AI)
 // ═══════════════════════════════════════════════════════════════════
 
-async function gerarImagemNanoBanana(prompt, estilo, env) {
+async function gerarImagemFlux(prompt, estilo, env) {
+  // Mapeamento de estilos para prompts mais detalhados
   const estilosMap = {
-    realista: "photorealistic, ultra realistic, 8k, high detail, professional photography",
-    ilustracao: "digital illustration, vector art, clean lines, vibrant colors, modern illustration",
-    cinematic: "cinematic lighting, movie poster style, dramatic composition, epic mood",
-    anime: "anime style, manga art, vibrant colors, japanese animation style",
-    pixel: "pixel art, retro game style, 8-bit, nostalgic gaming aesthetic",
-    minimalista: "minimalist design, clean composition, simple elegance, modern aesthetic"
+    realista: "photorealistic, ultra realistic, 8k, high detail, professional photography, natural lighting, sharp focus",
+    pintura: "oil painting, canvas texture, brush strokes, masterpiece, artistic, gallery quality, impressionist",
+    aquarela: "watercolor painting, soft colors, flowing brush strokes, artistic, delicate, transparent layers",
+    ilustracao: "digital illustration, vector art, clean lines, vibrant colors, modern illustration, professional",
+    anime: "anime style, manga art, japanese animation, vibrant colors, detailed characters, studio quality",
+    cinematic: "cinematic lighting, movie poster style, dramatic composition, epic mood, high contrast",
+    desenho: "hand drawing, sketch style, pencil art, detailed lines, artistic sketch, charcoal"
   };
   
   const estiloPrompt = estilosMap[estilo] || estilosMap.realista;
   
-  const atriaStyle = `Style: ${estiloPrompt}. Color palette: neon cyan #00d4d4 and purple #9b7fff. Dark background #0a0a0f. Professional, brazilian market aesthetic. High quality, 8k resolution.`;
+  // Estilo da marca Atria AI
+  const atriaStyle = `Style: ${estiloPrompt}. Color palette: neon cyan #00d4d4 and purple #9b7fff. Dark background #0a0a0f. Professional, brazilian market aesthetic.`;
   
   const fullPrompt = `${prompt}. ${atriaStyle}`;
   
-  const response = await fetch("https://api.nanobanana.com/v1/generate", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${env.NANO_BANANA_API_KEY}`,
-      "Content-Type": "application/json",
-      "Accept": "application/json"
-    },
-    body: JSON.stringify({
-      prompt: fullPrompt,
-      negative_prompt: "texto, palavras, assinatura, marca d'água, borrado, distorcido, low quality, ugly, deformed",
-      width: 512,
-      height: 512,
-      steps: 25,
-      cfg_scale: 7,
-      seed: Math.floor(Math.random() * 1000000),
-      stream: false
-    })
+  // Chamada para o modelo Flux.1 Schnell no Cloudflare Workers AI
+  const response = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", {
+    prompt: fullPrompt,
+    num_steps: 8,          // Flux funciona bem com poucos passos (4-8)
+    guidance: 3.5,         // Força de aderência ao prompt (recomendado 3.5)
+    width: 1024,
+    height: 1024
   });
   
-  if (!response.ok) {
-    const erro = await response.text();
-    console.error("[NanoBanana] Erro HTTP:", response.status, erro);
-    throw new Error(`Falha na geração: ${response.status} - ${erro.substring(0, 200)}`);
+  // response é um array buffer com a imagem
+  if (!response || !response.image) {
+    throw new Error("Flux não retornou imagem.");
   }
   
-  const text = await response.text();
-  console.log("[NanoBanana] Resposta recebida, tamanho:", text.length);
+  // Converte para base64
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(response.image)));
   
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch(e) {
-    if (text.startsWith("event:")) {
-      const lines = text.split("\n");
-      let jsonData = null;
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            jsonData = JSON.parse(line.substring(6));
-            break;
-          } catch(e) {}
-        }
-      }
-      if (jsonData) {
-        data = jsonData;
-      } else {
-        console.error("[NanoBanana] Resposta bruta:", text.substring(0, 500));
-        throw new Error("Formato de resposta não reconhecido (SSE sem dados válidos)");
-      }
-    } else {
-      console.error("[NanoBanana] Resposta não é JSON:", text.substring(0, 500));
-      throw new Error("Resposta da API não é JSON válido");
-    }
-  }
-  
-  const imagemBase64 = data.image || data.data?.image || data.output?.image || data.images?.[0]?.image || data.result?.image;
-  
-  if (!imagemBase64) {
-    console.error("[NanoBanana] Estrutura da resposta:", Object.keys(data));
-    throw new Error("Resposta da API não contém imagem.");
-  }
-  
-  return imagemBase64;
+  return base64;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -436,7 +393,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // ROTA: GERAR IMAGEM (Nano Banana)
+  // ROTA: GERAR IMAGEM (Flux.1 Schnell - Cloudflare Workers AI)
   // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/gerar-imagem" && request.method === "POST") {
@@ -447,38 +404,42 @@ async function handleRequest(request, env, ctx) {
       const { prompt, estilo } = await request.json();
       if (!prompt?.trim()) return err("Prompt obrigatório.", 400);
       
-      const CUSTO_IMAGEM = 5000;
+      // Custo simbólico (0 tokens, pois é gratuito via Workers AI)
+      const CUSTO_IMAGEM = 0;
       const plano = usuario.plano || "gratuito";
       
+      // Verifica se o plano permite geração de imagem
       if (plano === "gratuito") {
-        return err("🔒 Geração de imagens disponível a partir do Plano Start.", 403);
+        return err("🔒 Geração de imagens disponível a partir do Plano Start. Faça upgrade para criar imagens.", 403);
       }
       
+      // Verifica tokens (opcional, como é gratuito pode ignorar)
       const tokensUsados = usuario.tokens_usados || 0;
       const tokensLimite = usuario.tokens_limite || 150000;
       const tokensRestantes = tokensLimite - tokensUsados;
       
-      if (tokensRestantes < CUSTO_IMAGEM) {
-        return err(`Tokens insuficientes. Você tem ${tokensRestantes.toLocaleString()} tokens. Cada imagem custa ${CUSTO_IMAGEM.toLocaleString()} tokens.`, 403);
+      // Gera a imagem via Flux.1 Schnell
+      const imagemBase64 = await gerarImagemFlux(prompt, estilo, env);
+      
+      // Registra no histórico de créditos (opcional)
+      if (CUSTO_IMAGEM > 0) {
+        await env.DB.prepare("UPDATE usuarios SET tokens_usados = tokens_usados + ? WHERE id = ?")
+          .bind(CUSTO_IMAGEM, usuario.usuario_id).run();
+        
+        await env.DB.prepare("INSERT INTO creditos (usuario_id, tokens, origem) VALUES (?, ?, ?)")
+          .bind(usuario.usuario_id, CUSTO_IMAGEM, `imagem_flux_${Date.now()}`).run();
       }
-      
-      const imagemBase64 = await gerarImagemNanoBanana(prompt, estilo, env);
-      
-      await env.DB.prepare("UPDATE usuarios SET tokens_usados = tokens_usados + ? WHERE id = ?")
-        .bind(CUSTO_IMAGEM, usuario.usuario_id).run();
-      
-      await env.DB.prepare("INSERT INTO creditos (usuario_id, tokens, origem) VALUES (?, ?, ?)")
-        .bind(usuario.usuario_id, CUSTO_IMAGEM, `imagem_nano_${Date.now()}`).run();
       
       return json({ 
         ok: true, 
         imagem: imagemBase64,
         custo_tokens: CUSTO_IMAGEM,
-        tokens_restantes: tokensRestantes - CUSTO_IMAGEM
+        tokens_restantes: tokensRestantes - CUSTO_IMAGEM,
+        modelo: "flux-1-schnell"
       });
       
     } catch (e) {
-      console.error("[gerar-imagem]", e.message);
+      console.error("[gerar-imagem-flux]", e.message);
       return err("Erro ao gerar imagem: " + e.message, 500);
     }
   }
