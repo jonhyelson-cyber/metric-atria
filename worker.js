@@ -232,7 +232,6 @@ async function arquivarArquivosInativos(env) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function gerarImagemFlux(prompt, estilo, env) {
-  // Mapeamento de estilos para prompts mais detalhados
   const estilosMap = {
     realista: "photorealistic, ultra realistic, 8k, high detail, professional photography, natural lighting, sharp focus",
     pintura: "oil painting, canvas texture, brush strokes, masterpiece, artistic, gallery quality, impressionist",
@@ -245,27 +244,64 @@ async function gerarImagemFlux(prompt, estilo, env) {
   
   const estiloPrompt = estilosMap[estilo] || estilosMap.realista;
   
-  // Estilo da marca Atria AI
   const atriaStyle = `Style: ${estiloPrompt}. Color palette: neon cyan #00d4d4 and purple #9b7fff. Dark background #0a0a0f. Professional, brazilian market aesthetic.`;
   
   const fullPrompt = `${prompt}. ${atriaStyle}`;
   
-  // Chamada para o modelo Flux.1 Schnell no Cloudflare Workers AI
+  console.log("[Flux] Prompt enviado:", fullPrompt);
+  
+  // Chamada para o modelo Flux.1 Schnell
   const response = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", {
     prompt: fullPrompt,
-    num_steps: 8,          // Flux funciona bem com poucos passos (4-8)
-    guidance: 3.5,         // Força de aderência ao prompt (recomendado 3.5)
+    num_steps: 8,
+    guidance: 3.5,
     width: 1024,
     height: 1024
   });
   
-  // response é um array buffer com a imagem
-  if (!response || !response.image) {
-    throw new Error("Flux não retornou imagem.");
+  console.log("[Flux] Tipo da resposta:", typeof response);
+  console.log("[Flux] Chaves da resposta:", response ? Object.keys(response).join(", ") : "resposta vazia");
+  
+  // Extrai a imagem da resposta
+  let imageBuffer = null;
+  
+  if (response && response.image) {
+    imageBuffer = response.image;
+    console.log("[Flux] Imagem encontrada em response.image");
+  } else if (response && response.output && response.output.image) {
+    imageBuffer = response.output.image;
+    console.log("[Flux] Imagem encontrada em response.output.image");
+  } else if (response && typeof response === 'object' && !response.image) {
+    // Pode ser que a resposta seja o próprio buffer
+    imageBuffer = response;
+    console.log("[Flux] Tentando usar a própria resposta como buffer");
+  }
+  
+  if (!imageBuffer) {
+    console.error("[Flux] Resposta completa:", JSON.stringify(response).substring(0, 500));
+    throw new Error("Flux não retornou imagem válida.");
   }
   
   // Converte para base64
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(response.image)));
+  let base64;
+  try {
+    const uint8Array = imageBuffer instanceof ArrayBuffer 
+      ? new Uint8Array(imageBuffer)
+      : imageBuffer;
+    
+    // Converte Uint8Array para string base64
+    let binary = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    base64 = btoa(binary);
+    
+    console.log("[Flux] Imagem convertida com sucesso. Tamanho base64:", base64.length);
+    
+  } catch (e) {
+    console.error("[Flux] Erro na conversão:", e.message);
+    throw new Error("Erro ao converter imagem para base64: " + e.message);
+  }
   
   return base64;
 }
@@ -404,24 +440,19 @@ async function handleRequest(request, env, ctx) {
       const { prompt, estilo } = await request.json();
       if (!prompt?.trim()) return err("Prompt obrigatório.", 400);
       
-      // Custo simbólico (0 tokens, pois é gratuito via Workers AI)
       const CUSTO_IMAGEM = 0;
       const plano = usuario.plano || "gratuito";
       
-      // Verifica se o plano permite geração de imagem
       if (plano === "gratuito") {
         return err("🔒 Geração de imagens disponível a partir do Plano Start. Faça upgrade para criar imagens.", 403);
       }
       
-      // Verifica tokens (opcional, como é gratuito pode ignorar)
       const tokensUsados = usuario.tokens_usados || 0;
       const tokensLimite = usuario.tokens_limite || 150000;
       const tokensRestantes = tokensLimite - tokensUsados;
       
-      // Gera a imagem via Flux.1 Schnell
       const imagemBase64 = await gerarImagemFlux(prompt, estilo, env);
       
-      // Registra no histórico de créditos (opcional)
       if (CUSTO_IMAGEM > 0) {
         await env.DB.prepare("UPDATE usuarios SET tokens_usados = tokens_usados + ? WHERE id = ?")
           .bind(CUSTO_IMAGEM, usuario.usuario_id).run();
