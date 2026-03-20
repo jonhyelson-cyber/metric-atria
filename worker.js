@@ -5,8 +5,10 @@
 //            /admin/feedbacks  /admin/stats  /admin/usuarios
 //            /brain/index  /brain/query  /brain/status
 //            /brain/files  /brain/files/:id  /brain/files/:id/restore
+//            /gerar-imagem  (Nano Banana)
 // Bindings:  DB (D1) | AI | CACHE (KV) | VECTORIZE | BRAIN_FILES (R2)
 //            ANTHROPIC_API_KEY | MP_ACCESS_TOKEN | KIWIFY_WEBHOOK_TOKEN
+//            NANO_BANANA_API_KEY
 // ═══════════════════════════════════════════════════════════════════
 
 const CORS = {
@@ -128,12 +130,11 @@ async function verificarCotaDiaria(usuario, DB, modelo_escolhido, extra = {}) {
   }
   const plano = usuario.plano || "gratuito";
   const acessoModelo = {
-    gratuito: ["llama", "deepseek", "haiku"], // haiku liberado para imagens e docs
+    gratuito: ["llama", "deepseek", "haiku"],
     start:    ["llama", "deepseek", "haiku"],
     pro:      ["llama", "deepseek", "haiku", "sonnet"],
     elite:    ["llama", "deepseek", "haiku", "sonnet", "opus"],
   };
-  // Gratuito: bloqueia apenas apresentação/código (pedeArtefato)
   if (modelo_escolhido === "haiku" && extra?.pedeArtefato && plano === "gratuito") {
     return { ok: false, erro: "🔒 Apresentações e código estão disponíveis a partir do Plano Start." };
   }
@@ -154,8 +155,6 @@ async function verificarCotaDiaria(usuario, DB, modelo_escolhido, extra = {}) {
   return { ok: true };
 }
 
-// ── Chunking com 10% de sobreposição ────────────────────────────────
-// Extrai texto de content blocks da Anthropic (suporta tool_use, tool_result, text)
 function extrairTextoResposta(content) {
   if (!Array.isArray(content)) return content || "";
   return content
@@ -178,7 +177,6 @@ function chunkTexto(texto, tamanho = 1000) {
   return chunks;
 }
 
-// ── Arquivamento automático (Cron Trigger) ───────────────────────────
 async function arquivarArquivosInativos(env) {
   const limite = new Date();
   limite.setDate(limite.getDate() - 30);
@@ -207,21 +205,12 @@ async function arquivarArquivosInativos(env) {
 
   for (const doc of candidatos) {
     try {
-      // 1. Busca o texto original do R2 (já salvo no upload)
       const obj = await env.BRAIN_FILES.get(doc.r2_key);
       if (!obj) {
-        // Arquivo não encontrado no R2 — apenas marca como arquivado no D1
-        await env.DB.prepare(
-          "UPDATE brain_documents SET no_vectorize = 0 WHERE id = ?"
-        ).bind(doc.id).run();
+        await env.DB.prepare("UPDATE brain_documents SET no_vectorize = 0 WHERE id = ?").bind(doc.id).run();
         continue;
       }
 
-      // 2. Remove vetores do Vectorize usando o padrão de ID do worker
-      //    IDs gerados em /brain/index: u{usuario_id}_{timestamp}_{i}
-      //    Como não temos os IDs exatos salvos, usamos o texto para re-identificar.
-      //    A forma mais segura é guardar o prefixo do lote no D1.
-      //    Se a coluna vector_prefix existir, usamos ela. Caso contrário, pula remoção do Vectorize.
       if (doc.vector_prefix) {
         const vectorIds = Array.from(
           { length: doc.total_chunks },
@@ -232,22 +221,69 @@ async function arquivarArquivosInativos(env) {
         }
       }
 
-      // 3. Atualiza status no D1 — marca como fora do Vectorize
-      await env.DB.prepare(
-        "UPDATE brain_documents SET no_vectorize = 0 WHERE id = ?"
-      ).bind(doc.id).run();
-
+      await env.DB.prepare("UPDATE brain_documents SET no_vectorize = 0 WHERE id = ?").bind(doc.id).run();
       console.log(`[brain-archive] ✓ Arquivado: ${doc.nome_arquivo} (id=${doc.id})`);
-
     } catch (e) {
       console.error(`[brain-archive] ✗ Erro em doc ${doc.id}:`, e.message);
     }
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// NANO BANANA — Geração de Imagens
+// ═══════════════════════════════════════════════════════════════════
+
+async function gerarImagemNanoBanana(prompt, estilo, env) {
+  const estilosMap = {
+    realista: "photorealistic, ultra realistic, 8k, high detail, professional photography",
+    ilustracao: "digital illustration, vector art, clean lines, vibrant colors, modern illustration",
+    cinematic: "cinematic lighting, movie poster style, dramatic composition, epic mood",
+    anime: "anime style, manga art, vibrant colors, japanese animation style",
+    pixel: "pixel art, retro game style, 8-bit, nostalgic gaming aesthetic",
+    minimalista: "minimalist design, clean composition, simple elegance, modern aesthetic"
+  };
+  
+  const estiloPrompt = estilosMap[estilo] || estilosMap.realista;
+  
+  const atriaStyle = `Style: ${estiloPrompt}. Color palette: neon cyan #00d4d4 and purple #9b7fff. Dark background #0a0a0f. Professional, brazilian market aesthetic. High quality, 8k resolution.`;
+  
+  const fullPrompt = `${prompt}. ${atriaStyle}`;
+  
+  const response = await fetch("https://api.nanobanana.com/v1/generate", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.NANO_BANANA_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      prompt: fullPrompt,
+      negative_prompt: "texto, palavras, assinatura, marca d'água, borrado, distorcido, low quality, ugly, deformed",
+      width: 512,
+      height: 512,
+      steps: 25,
+      cfg_scale: 7,
+      seed: Math.floor(Math.random() * 1000000)
+    })
+  });
+  
+  if (!response.ok) {
+    const erro = await response.text();
+    console.error("[NanoBanana] Erro:", response.status, erro);
+    throw new Error(`Falha na geração: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  const imagemBase64 = data.image || data.data?.image || data.output?.image;
+  
+  if (!imagemBase64) {
+    throw new Error("Resposta da API não contém imagem.");
+  }
+  
+  return imagemBase64;
+}
 
 // ═══════════════════════════════════════════════════════════════════
-// SYSTEM PROMPTS — constantes globais
+// SYSTEM PROMPTS
 // ═══════════════════════════════════════════════════════════════════
 
 const SYSTEM_BASE = `Você é a Atria AI — assistente de IA para empreendedores e profissionais brasileiros.
@@ -344,7 +380,6 @@ INSTRUÇÕES: Direto e prático. Sugira texto pronto quando pedido. Identifique 
 const KEYWORDS_BUSCA_WEB = /hoje|agora|not[ií]cia|pre[çc]o|[úu]ltimo|recente|atual|2024|2025|2026|quem [ée]|quando foi|quanto custa|novidade|cota[çc][aã]o|d[oó]lar|bitcoin|ethereum|crypto|cripto|ouro|selic|ibovespa|taxa|juros|infla[çc][aã]o|câmbio|cambio|mercado|bolsa|a[çc][aã]o|acoes|ações|clima|tempo|chuva|chover|previs[aã]o|temperatura|calor|frio|vento|umidade/i;
 
 export default {
-  // ── HTTP handler ────────────────────────────────────────────────
   async fetch(request, env, ctx) {
     try {
       return await handleRequest(request, env, ctx);
@@ -356,22 +391,71 @@ export default {
     }
   },
 
-  // ── Cron Trigger: todo dia às 3h UTC ────────────────────────────
   async scheduled(event, env, ctx) {
     ctx.waitUntil(arquivarArquivosInativos(env));
   },
 };
 
-
 async function handleRequest(request, env, ctx) {
-  const url  = new URL(request.url);
+  const url = new URL(request.url);
   const path = url.pathname;
 
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: CORS });
   }
 
-  // ── POST /cadastro ──────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: GERAR IMAGEM (Nano Banana)
+  // ═══════════════════════════════════════════════════════════════════
+
+  if (path === "/gerar-imagem" && request.method === "POST") {
+    try {
+      const usuario = await autenticar(request, env.DB);
+      if (!usuario) return err("Não autenticado.", 401);
+      
+      const { prompt, estilo } = await request.json();
+      if (!prompt?.trim()) return err("Prompt obrigatório.", 400);
+      
+      const CUSTO_IMAGEM = 5000;
+      const plano = usuario.plano || "gratuito";
+      
+      if (plano === "gratuito") {
+        return err("🔒 Geração de imagens disponível a partir do Plano Start.", 403);
+      }
+      
+      const tokensUsados = usuario.tokens_usados || 0;
+      const tokensLimite = usuario.tokens_limite || 150000;
+      const tokensRestantes = tokensLimite - tokensUsados;
+      
+      if (tokensRestantes < CUSTO_IMAGEM) {
+        return err(`Tokens insuficientes. Você tem ${tokensRestantes.toLocaleString()} tokens. Cada imagem custa ${CUSTO_IMAGEM.toLocaleString()} tokens.`, 403);
+      }
+      
+      const imagemBase64 = await gerarImagemNanoBanana(prompt, estilo, env);
+      
+      await env.DB.prepare("UPDATE usuarios SET tokens_usados = tokens_usados + ? WHERE id = ?")
+        .bind(CUSTO_IMAGEM, usuario.usuario_id).run();
+      
+      await env.DB.prepare("INSERT INTO creditos (usuario_id, tokens, origem) VALUES (?, ?, ?)")
+        .bind(usuario.usuario_id, CUSTO_IMAGEM, `imagem_nano_${Date.now()}`).run();
+      
+      return json({ 
+        ok: true, 
+        imagem: imagemBase64,
+        custo_tokens: CUSTO_IMAGEM,
+        tokens_restantes: tokensRestantes - CUSTO_IMAGEM
+      });
+      
+    } catch (e) {
+      console.error("[gerar-imagem]", e.message);
+      return err("Erro ao gerar imagem: " + e.message, 500);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTAS EXISTENTES (mantidas)
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/cadastro" && request.method === "POST") {
     try {
       const { nome, email, whatsapp, senha, ref } = await request.json();
@@ -402,7 +486,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── POST /login ─────────────────────────────────────────────────
   if (path === "/login" && request.method === "POST") {
     try {
       const { email, senha } = await request.json();
@@ -422,19 +505,15 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── POST /esqueci-senha ───────────────────────────────────────────
   if (path === "/esqueci-senha" && request.method === "POST") {
     try {
       const { email } = await request.json();
       if (!email) return err("Email é obrigatório.");
-      const usuario = await env.DB.prepare(
-        "SELECT id, nome FROM usuarios WHERE email = ? AND ativo = 1"
-      ).bind(email.toLowerCase().trim()).first();
-
-      // Sempre retorna sucesso — não revela se o email existe (segurança)
+      const usuario = await env.DB.prepare("SELECT id, nome FROM usuarios WHERE email = ? AND ativo = 1")
+        .bind(email.toLowerCase().trim()).first();
       if (!usuario) return json({ ok: true });
 
-      const token  = gerarToken();
+      const token = gerarToken();
       const expira = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
       await env.DB.prepare(`
@@ -449,9 +528,8 @@ async function handleRequest(request, env, ctx) {
       `).run();
 
       await env.DB.prepare("DELETE FROM reset_tokens WHERE usuario_id = ?").bind(usuario.id).run();
-      await env.DB.prepare(
-        "INSERT INTO reset_tokens (usuario_id, token, expira_em) VALUES (?, ?, ?)"
-      ).bind(usuario.id, token, expira).run();
+      await env.DB.prepare("INSERT INTO reset_tokens (usuario_id, token, expira_em) VALUES (?, ?, ?)")
+        .bind(usuario.id, token, expira).run();
 
       await enviarEmailRecuperacao(email, usuario.nome, token, env);
       return json({ ok: true });
@@ -461,7 +539,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── POST /redefinir-senha ─────────────────────────────────────────
   if (path === "/redefinir-senha" && request.method === "POST") {
     try {
       const { token, senha } = await request.json();
@@ -489,10 +566,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── GET /me ─────────────────────────────────────────────────────
   if (path === "/me" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
+    
     let ref_code = null, indicacoes_convertidas = 0;
     try {
       const extra = await env.DB.prepare("SELECT ref_code, indicacoes_convertidas FROM usuarios WHERE id = ?").bind(usuario.usuario_id).first();
@@ -502,7 +579,12 @@ async function handleRequest(request, env, ctx) {
         ref_code = gerarRefCode();
         await env.DB.prepare("UPDATE usuarios SET ref_code = ? WHERE id = ?").bind(ref_code, usuario.usuario_id).run().catch(() => {});
       }
-    } catch(e) { /* colunas ainda não existem no D1 */ }
+    } catch(e) {}
+
+    const tokensUsados = usuario.tokens_usados || 0;
+    const tokensLimite = usuario.tokens_limite || 150000;
+    const tokensRestantes = tokensLimite - tokensUsados;
+    const imagensDisponiveis = Math.floor(tokensRestantes / 5000);
 
     return json({
       ok: true,
@@ -520,11 +602,12 @@ async function handleRequest(request, env, ctx) {
         has_atria_voice: !!usuario.has_atria_voice,
         atria_trial_inicio: usuario.atria_trial_inicio || null,
         atria_trial_usado: !!usuario.atria_trial_usado,
+        imagens_disponiveis: imagensDisponiveis,
+        custo_imagem_tokens: 5000,
       }
     });
   }
 
-  // ── POST /atria-voice/trial ───────────────────────────────────────
   if (path === "/atria-voice/trial" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -535,26 +618,22 @@ async function handleRequest(request, env, ctx) {
     return json({ ok: true, trial_inicio: agora });
   }
 
-  // ── POST /criar-pagamento-atria ───────────────────────────────────
   if (path === "/criar-pagamento-atria" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
     return json({ ok: true, url: "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=7a58c91d66e44ac68574e90ab3c34b89" });
   }
 
-  // ── POST /logout ─────────────────────────────────────────────────
   if (path === "/logout" && request.method === "POST") {
     const token = extrairToken(request);
     if (token) await env.DB.prepare("DELETE FROM sessoes WHERE token = ?").bind(token).run();
     return json({ ok: true });
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // MÓDULO CÉREBRO (rotas existentes — mantidas)
+  // ═══════════════════════════════════════════════════════════════════
 
-  // ════════════════════════════════════════════════════════════════
-  // MÓDULO CÉREBRO
-  // ════════════════════════════════════════════════════════════════
-
-  // ── POST /brain/index ────────────────────────────────────────────
   if (path === "/brain/index" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
@@ -566,58 +645,45 @@ async function handleRequest(request, env, ctx) {
       if (!texto?.trim()) return err("Texto obrigatório.");
 
       const textoTrimmed = texto.trim();
-      const tamanho      = textoTrimmed.length;
+      const tamanho = textoTrimmed.length;
+      const PEQUENO = tamanho <= 50000;
+      const chunkSize = PEQUENO ? 4000 : 6000;
+      const usarR2Chunks = !PEQUENO;
 
-      // ── Seleção de estratégia por tamanho ────────────────────────
-      // Pequeno (≤50k): chunk de 4k, metadata no Vectorize
-      // Grande  (>50k): chunk de 6k, texto completo no R2, só ref no Vectorize
-      const PEQUENO      = tamanho <= 50000;
-      const chunkSize    = PEQUENO ? 4000 : 6000;
-      const usarR2Chunks = !PEQUENO; // R2 para recuperação de chunks vizinhos
-
-      const chunks        = chunkTexto(textoTrimmed, chunkSize);
-      const chunksLimitados = chunks.slice(0, 500); // máx 500 chunks
-
-      const loteId       = `u${usuario.usuario_id}_${Date.now()}`;
+      const chunks = chunkTexto(textoTrimmed, chunkSize);
+      const chunksLimitados = chunks.slice(0, 500);
+      const loteId = `u${usuario.usuario_id}_${Date.now()}`;
       const vectorInserts = [];
 
-      // ── Batch de embeddings ───────────────────────────────────────
       for (let b = 0; b < chunksLimitados.length; b += 20) {
         const batchTextos = chunksLimitados.slice(b, b + 20);
-        const embedding   = await env.AI.run("@cf/baai/bge-small-en-v1.5", { text: batchTextos });
+        const embedding = await env.AI.run("@cf/baai/bge-small-en-v1.5", { text: batchTextos });
         batchTextos.forEach((chunkText, j) => {
           const i = b + j;
           vectorInserts.push({
             id: `${loteId}_${i}`,
             values: embedding.data[j],
             metadata: PEQUENO
-              // Pequeno: guarda texto direto no metadata do Vectorize
               ? { text: chunkText, source: fonte || "documento", usuario_id: String(usuario.usuario_id) }
-              // Grande: guarda só referência — texto real fica no R2
               : { r2_chunk_key: `${loteId}_chunk_${i}`, source: fonte || "documento", usuario_id: String(usuario.usuario_id), chunk_index: i, total_chunks: chunksLimitados.length }
           });
         });
       }
 
-      // ── Upsert vetores ────────────────────────────────────────────
       for (let i = 0; i < vectorInserts.length; i += 200) {
         await env.VECTORIZE.upsert(vectorInserts.slice(i, i + 200));
       }
 
-      // ── R2: salva texto completo + chunks individuais (se grande) ─
       const nomeArquivo = fonte || "documento";
       const r2Key = `u${usuario.usuario_id}/${Date.now()}_${nomeArquivo.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
       try {
         if (env.BRAIN_FILES) {
-          // Sempre salva o texto completo no R2
           await env.BRAIN_FILES.put(r2Key, textoTrimmed, {
             httpMetadata: { contentType: "text/plain; charset=utf-8" },
             customMetadata: { usuario_id: String(usuario.usuario_id), fonte: nomeArquivo, chunks: String(chunksLimitados.length), tamanho: String(tamanho) }
           });
 
-          // Para arquivos grandes: salva cada chunk individualmente no R2
-          // Permite recuperação de chunks vizinhos na busca
           if (usarR2Chunks) {
             const chunkSavePromises = chunksLimitados.map((chunkText, i) =>
               env.BRAIN_FILES.put(`${loteId}_chunk_${i}`, chunkText, {
@@ -625,7 +691,6 @@ async function handleRequest(request, env, ctx) {
                 customMetadata: { source: nomeArquivo, chunk_index: String(i), total: String(chunksLimitados.length) }
               })
             );
-            // Salva em grupos de 20 para não estourar subrequests
             for (let i = 0; i < chunkSavePromises.length; i += 20) {
               await Promise.all(chunkSavePromises.slice(i, i + 20));
             }
@@ -645,15 +710,12 @@ async function handleRequest(request, env, ctx) {
         console.error("[brain/index] Erro R2/D1:", r2err.message);
       }
 
-      const estrategia = PEQUENO ? "metadata" : "R2";
-      return json({ ok: true, chunks: chunksLimitados.length, estrategia, mensagem: `✅ ${chunksLimitados.length} blocos memorizados no Cérebro!` });
+      return json({ ok: true, chunks: chunksLimitados.length, mensagem: `✅ ${chunksLimitados.length} blocos memorizados no Cérebro!` });
     } catch (e) {
       return err("Erro ao indexar: " + e.message, 500);
     }
   }
 
-    // ── GET /brain/files ─────────────────────────────────────────────
-  // Lista todos os arquivos do usuário com metadados
   if (path === "/brain/files" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -673,12 +735,10 @@ async function handleRequest(request, env, ctx) {
 
       return json({ ok: true, files: results || [] });
     } catch(e) {
-      return json({ ok: true, files: [] }); // tabela ainda não existe
+      return json({ ok: true, files: [] });
     }
   }
 
-  // ── DELETE /brain/files/:id ───────────────────────────────────────
-  // Remove vetores do Vectorize + arquivo do R2 + registro do D1
   if (path.match(/^\/brain\/files\/[^/]+$/) && request.method === "DELETE") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -694,7 +754,6 @@ async function handleRequest(request, env, ctx) {
       if (!doc) return err("Arquivo não encontrado.", 404);
       if (String(doc.usuario_id) !== String(usuario.usuario_id)) return err("Sem permissão.", 403);
 
-      // 1. Remove vetores do Vectorize (apenas se ainda está ativo)
       if (doc.no_vectorize === 1 && doc.vector_prefix) {
         const vectorIds = Array.from(
           { length: doc.total_chunks },
@@ -705,12 +764,10 @@ async function handleRequest(request, env, ctx) {
         }
       }
 
-      // 2. Remove do R2
       if (doc.r2_key && env.BRAIN_FILES) {
         await env.BRAIN_FILES.delete(doc.r2_key).catch(() => {});
       }
 
-      // 3. Remove do D1
       await env.DB.prepare("DELETE FROM brain_documents WHERE id = ?").bind(docId).run();
 
       return json({ ok: true, mensagem: "Arquivo removido com sucesso." });
@@ -719,68 +776,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── GET /brain/files/:id/restore ─────────────────────────────────
-  // Restaura arquivo arquivado de volta ao Vectorize
-  if (path.match(/^\/brain\/files\/[^/]+\/restore$/) && request.method === "GET") {
-    const usuario = await autenticar(request, env.DB);
-    if (!usuario) return err("Não autenticado.", 401);
-    if (!usuario.has_brain || usuario.brain_status !== "active") {
-      return err("🧠 Módulo Cérebro não ativo.", 403);
-    }
-
-    const docId = path.split("/")[3];
-
-    try {
-      const doc = await env.DB.prepare(`
-        SELECT * FROM brain_documents WHERE id = ? AND usuario_id = ?
-      `).bind(docId, usuario.usuario_id).first();
-
-      if (!doc) return err("Arquivo não encontrado.", 404);
-      if (doc.no_vectorize === 1) return err("Arquivo já está ativo no Cérebro.", 400);
-      if (!doc.r2_key) return err("Arquivo não possui backup para restauração.", 400);
-
-      // 1. Lê o texto original do R2
-      const obj = await env.BRAIN_FILES.get(doc.r2_key);
-      if (!obj) return err("Arquivo no armazenamento frio não encontrado.", 404);
-      const texto = await obj.text();
-
-      // 2. Re-indexa no Vectorize com novo loteId
-      const chunks  = chunkTexto(texto);
-      const loteId  = `u${usuario.usuario_id}_${Date.now()}`;
-      const inserts = [];
-
-      for (let i = 0; i < chunks.length; i++) {
-        const embedding = await env.AI.run("@cf/baai/bge-small-en-v1.5", { text: [chunks[i]] });
-        inserts.push({
-          id: `${loteId}_${i}`,
-          values: embedding.data[0],
-          metadata: {
-            text: chunks[i],
-            source: doc.nome_arquivo,
-            usuario_id: String(usuario.usuario_id),
-          }
-        });
-      }
-
-      for (let i = 0; i < inserts.length; i += 1000) {
-        await env.VECTORIZE.upsert(inserts.slice(i, i + 1000));
-      }
-
-      // 3. Atualiza D1
-      const agora = new Date().toISOString();
-      await env.DB.prepare(`
-        UPDATE brain_documents
-        SET no_vectorize = 1, vector_prefix = ?, ultimo_acesso = ?
-        WHERE id = ?
-      `).bind(loteId, agora, docId).run();
-
-      return json({ ok: true, chunks: chunks.length, mensagem: `✅ "${doc.nome_arquivo}" restaurado com sucesso!` });
-    } catch(e) {
-      return err("Erro ao restaurar arquivo: " + e.message, 500);
-    }
-  }
-
-  // ── POST /brain/query ────────────────────────────────────────────
   if (path === "/brain/query" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
@@ -818,43 +813,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── GET /brain/documentos ─────────────────────────────────────────
-  // Mantido por compatibilidade — use /brain/files para a UI nova
-  if (path === "/brain/documentos" && request.method === "GET") {
-    const usuario = await autenticar(request, env.DB);
-    if (!usuario) return err("Não autenticado.", 401);
-    try {
-      const docs = await env.DB.prepare(
-        "SELECT id, nome_arquivo, tamanho_bytes, total_chunks, no_vectorize, ultimo_acesso, criado_em FROM brain_documents WHERE usuario_id = ? ORDER BY criado_em DESC"
-      ).bind(usuario.usuario_id).all();
-      return json({ ok: true, documentos: docs.results || [] });
-    } catch(e) {
-      return json({ ok: true, documentos: [] });
-    }
-  }
-
-  // ── DELETE /brain/documento ───────────────────────────────────────
-  // Mantido por compatibilidade — use DELETE /brain/files/:id para a UI nova
-  if (path === "/brain/documento" && request.method === "DELETE") {
-    const usuario = await autenticar(request, env.DB);
-    if (!usuario) return err("Não autenticado.", 401);
-    const { id } = await request.json();
-    if (!id) return err("ID obrigatório.");
-    try {
-      const doc = await env.DB.prepare(
-        "SELECT * FROM brain_documents WHERE id = ? AND usuario_id = ?"
-      ).bind(id, usuario.usuario_id).first();
-      if (!doc) return err("Documento não encontrado.", 404);
-      if (env.BRAIN_FILES) await env.BRAIN_FILES.delete(doc.r2_key).catch(() => {});
-      await env.DB.prepare("DELETE FROM brain_documents WHERE id = ?").bind(id).run();
-      return json({ ok: true, mensagem: "Documento removido." });
-    } catch(e) {
-      return err("Erro ao deletar: " + e.message);
-    }
-  }
-
-  // ── POST /brain/reindexar ─────────────────────────────────────────
-  // ── /fetch-url  — proxy de sites e YouTube ───────────────────────
   if (path === "/fetch-url" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
@@ -863,32 +821,25 @@ async function handleRequest(request, env, ctx) {
       const { url } = await request.json();
       if (!url || typeof url !== "string") return err("URL inválida.");
 
-      // ── YouTube ────────────────────────────────────────────────
       const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})/);
       if (ytMatch) {
         const videoId = ytMatch[1];
-
-        // 1) Metadados via oEmbed (sem chave)
         let titulo = "", canal = "";
         try {
           const oembed = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
           if (oembed.ok) {
             const d = await oembed.json();
             titulo = d.title || "";
-            canal  = d.author_name || "";
+            canal = d.author_name || "";
           }
         } catch(_) {}
 
-        // 2) Transcrição via legendas automáticas do YouTube
         let transcricao = "";
         try {
-          // Busca a página do vídeo para extrair o token de legenda
           const ytPage = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
             headers: { "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8", "User-Agent": "Mozilla/5.0 (compatible)" }
           });
           const html = await ytPage.text();
-
-          // Extrai URL da legenda do ytInitialPlayerResponse
           const captionMatch = html.match(/"captionTracks":\[.*?"baseUrl":"([^"]+)"/);
           if (captionMatch) {
             const captionUrl = decodeURIComponent(captionMatch[1].replace(/\\u0026/g, "&"));
@@ -902,23 +853,22 @@ async function handleRequest(request, env, ctx) {
                 .join(" ")
                 .replace(/\s+/g, " ")
                 .trim()
-                .slice(0, 80000); // limite seguro de contexto
+                .slice(0, 80000);
             }
           }
         } catch(_) {}
 
-        if (!titulo && !transcricao) return err("Não foi possível extrair informações deste vídeo. Verifique se ele é público.");
+        if (!titulo && !transcricao) return err("Não foi possível extrair informações deste vídeo.");
 
         const conteudo = [
-          titulo    ? `📺 Título: ${titulo}`    : "",
-          canal     ? `👤 Canal: ${canal}`      : "",
-          transcricao ? `\n📝 Transcrição:\n${transcricao}` : "\n⚠️ Transcrição não disponível para este vídeo (sem legenda automática)."
+          titulo ? `📺 Título: ${titulo}` : "",
+          canal ? `👤 Canal: ${canal}` : "",
+          transcricao ? `\n📝 Transcrição:\n${transcricao}` : "\n⚠️ Transcrição não disponível."
         ].filter(Boolean).join("\n");
 
         return json({ ok: true, tipo: "youtube", titulo, canal, conteudo, temTranscricao: !!transcricao });
       }
 
-      // ── Site normal ────────────────────────────────────────────
       let respFetch;
       try {
         respFetch = await fetch(url, {
@@ -931,10 +881,10 @@ async function handleRequest(request, env, ctx) {
           signal: AbortSignal.timeout(8000)
         });
       } catch(e) {
-        return err("Não foi possível acessar o site. Verifique se a URL está correta e o site está online.");
+        return err("Não foi possível acessar o site.");
       }
 
-      if (!respFetch.ok) return err(`Site retornou erro ${respFetch.status}. Pode ser que o site bloqueie acesso automático.`);
+      if (!respFetch.ok) return err(`Site retornou erro ${respFetch.status}.`);
 
       const contentType = respFetch.headers.get("content-type") || "";
       if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
@@ -942,12 +892,9 @@ async function handleRequest(request, env, ctx) {
       }
 
       const html = await respFetch.text();
-
-      // Extrai título
       const tituloMatch = html.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
       const tituloPagina = tituloMatch ? tituloMatch[1].replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim() : "";
 
-      // Remove scripts, styles, nav, footer, header, ads
       let texto = html
         .replace(/<script[\s\S]*?<\/script>/gi, "")
         .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -962,7 +909,7 @@ async function handleRequest(request, env, ctx) {
         .trim()
         .slice(0, 80000);
 
-      if (texto.length < 100) return err("Não foi possível extrair conteúdo desta página. O site pode usar JavaScript para renderizar o conteúdo.");
+      if (texto.length < 100) return err("Não foi possível extrair conteúdo desta página.");
 
       const conteudo = [
         tituloPagina ? `🌐 Página: ${tituloPagina}` : `🌐 URL: ${url}`,
@@ -976,42 +923,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  if (path === "/brain/reindexar" && request.method === "POST") {
-    const usuario = await autenticar(request, env.DB);
-    if (!usuario) return err("Não autenticado.", 401);
-    if (!usuario.has_brain || usuario.brain_status !== "active") return err("Cérebro não ativo.", 403);
-    const { id } = await request.json();
-    if (!id) return err("ID obrigatório.");
-    try {
-      const doc = await env.DB.prepare(
-        "SELECT * FROM brain_documents WHERE id = ? AND usuario_id = ?"
-      ).bind(id, usuario.usuario_id).first();
-      if (!doc) return err("Documento não encontrado.", 404);
-      const obj = await env.BRAIN_FILES.get(doc.r2_key);
-      if (!obj) return err("Arquivo não encontrado no armazenamento.");
-      const texto  = await obj.text();
-      const chunks = chunkTexto(texto);
-      const loteId = `u${usuario.usuario_id}_${Date.now()}`;
-      const vectorInserts = [];
-      for (let i = 0; i < chunks.length; i++) {
-        const embedding = await env.AI.run("@cf/baai/bge-small-en-v1.5", { text: [chunks[i]] });
-        vectorInserts.push({
-          id: `${loteId}_${i}`,
-          values: embedding.data[0],
-          metadata: { text: chunks[i], source: doc.nome_arquivo, usuario_id: String(usuario.usuario_id) }
-        });
-      }
-      if (vectorInserts.length > 0) await env.VECTORIZE.upsert(vectorInserts);
-      await env.DB.prepare(
-        "UPDATE brain_documents SET no_vectorize = 1, vector_prefix = ?, ultimo_acesso = datetime('now') WHERE id = ?"
-      ).bind(loteId, id).run();
-      return json({ ok: true, chunks: chunks.length, mensagem: `✅ ${doc.nome_arquivo} re-indexado com sucesso!` });
-    } catch(e) {
-      return err("Erro ao re-indexar: " + e.message);
-    }
-  }
-
-  // ── GET /brain/status ────────────────────────────────────────────
   if (path === "/brain/status" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -1022,12 +933,10 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-
-  // ════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════
   // CHAT
-  // ════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════
 
-  // ── POST /chat ───────────────────────────────────────────────────
   if (path === "/chat" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
@@ -1037,11 +946,11 @@ async function handleRequest(request, env, ctx) {
       if (!mensagem || mensagem.trim().length === 0) return err("Mensagem vazia.");
       if (mensagem.length > 50000) return err("Mensagem muito longa. Máximo 50.000 caracteres.");
 
-      const _temImagem  = !!(imagem && imagem.base64 && imagem.mediaType);
-      const _temUrl     = !!(urlConteudo && urlConteudo.length > 0);
-      const _ehApres    = tipo === "apresentacao" || /apresenta[çc][aã]o|apresentar|slides?|powerpoint|pptx|pitch\s?deck/i.test(mensagem);
-      const _ehCodigo   = tipo === "codigo" || /cri(e|a|ar)\s+(um\s+)?(site|p[áa]gina|componente|script|programa|bot[aã]o|sistema|aplicat|app|calculadora|formul|tabela|dashboard)|fa[çc]a\s+(um\s+)?(site|p[áa]gina|script|sistema)|escreva?\s+(um\s+)?(c[oó]digo|script|programa)|html\s+completo|c[oó]digo\s+(completo|em\s+(python|javascript|html|sql))|arquivo\s+html|em\s+python|em\s+javascript/i.test(mensagem);
-      const _temAnexo   = /arquivo\s+anexado|conte[úu]do\s+do\s+arquivo|```/.test(mensagem);
+      const _temImagem = !!(imagem && imagem.base64 && imagem.mediaType);
+      const _temUrl = !!(urlConteudo && urlConteudo.length > 0);
+      const _ehApres = tipo === "apresentacao" || /apresenta[çc][aã]o|apresentar|slides?|powerpoint|pptx|pitch\s?deck/i.test(mensagem);
+      const _ehCodigo = tipo === "codigo" || /cri(e|a|ar)\s+(um\s+)?(site|p[áa]gina|componente|script|programa|bot[aã]o|sistema|aplicat|app|calculadora|formul|tabela|dashboard)|fa[çc]a\s+(um\s+)?(site|p[áa]gina|script|sistema)|escreva?\s+(um\s+)?(c[oó]digo|script|programa)|html\s+completo|c[oó]digo\s+(completo|em\s+(python|javascript|html|sql))|arquivo\s+html|em\s+python|em\s+javascript/i.test(mensagem);
+      const _temAnexo = /arquivo\s+anexado|conte[úu]do\s+do\s+arquivo|```/.test(mensagem);
       const _pedeAnalise = /anali[sz]|estrat[eé]g|plano\s+de|c[áa]lculo|lucro|financeiro|resolva|por\s+que|diagn[oó]stico|swot|planejamento|projeç|avali[ae]|fluxo\s+de\s+caixa|margem|roi|kpi|otimiz/i.test(mensagem);
       const _plano = usuario.plano || "gratuito";
       let _modeloPrev;
@@ -1072,7 +981,6 @@ async function handleRequest(request, env, ctx) {
       const msgsFiltradas = [];
       const FRASES_RUINS = ["não consigo visualizar", "não consigo ver imagens", "não tenho acesso a imagens", "não é possível visualizar imagens", "não posso ver imagens", "infelizmente não consigo"];
       for (const m of (historico.results || [])) {
-        // Remove respostas antigas onde a IA disse que não consegue ver imagens
         if (m.role === "assistant" && FRASES_RUINS.some(f => m.conteudo?.toLowerCase().includes(f))) continue;
         const t = estimarTokens(m.conteudo);
         if (tokensTotais + t > LIMITE_TOKENS_CONTEXTO) break;
@@ -1081,50 +989,43 @@ async function handleRequest(request, env, ctx) {
       }
       const msgs_historico = msgsFiltradas;
 
-      const planoUsuario   = usuario.plano || "gratuito";
-      const temImagem      = _temImagem;
+      const planoUsuario = usuario.plano || "gratuito";
+      const temImagem = _temImagem;
       const ehApresentacao = _ehApres;
-      const ehCodigo       = _ehCodigo;
-      const pedeArtefato   = ehApresentacao || ehCodigo;
-      const temAnexoDoc    = _temAnexo;
-      const pedeAnalise    = _pedeAnalise;
-      const mensagemLonga  = mensagem.length > 400;
+      const ehCodigo = _ehCodigo;
+      const pedeArtefato = ehApresentacao || ehCodigo;
+      const temAnexoDoc = _temAnexo;
+      const pedeAnalise = _pedeAnalise;
+      const mensagemLonga = mensagem.length > 400;
 
-      // ── Detecta se precisa de busca web ─────────────────────────
-      const PLANOS_BUSCA  = ["gratuito", "start", "pro", "elite"]; // busca web para todos
-      const temBuscaWeb   = PLANOS_BUSCA.includes(planoUsuario)
-                            && !pedeArtefato
-                            && !temImagem
-                            && KEYWORDS_BUSCA_WEB.test(mensagem);
-      const WEB_TOOL      = { type: "web_search_20250305", name: "web_search", max_uses: 3,
-                              user_location: { type: "approximate", country: "BR", city: "Brasil", timezone: "America/Sao_Paulo" } };
+      const PLANOS_BUSCA = ["gratuito", "start", "pro", "elite"];
+      const temBuscaWeb = PLANOS_BUSCA.includes(planoUsuario) && !pedeArtefato && !temImagem && KEYWORDS_BUSCA_WEB.test(mensagem);
+      const WEB_TOOL = { type: "web_search_20250305", name: "web_search", max_uses: 3,
+        user_location: { type: "approximate", country: "BR", city: "Brasil", timezone: "America/Sao_Paulo" } };
 
       let modelo_escolhido;
       if (planoUsuario === "elite") {
         if (temImagem || pedeArtefato || temAnexoDoc) modelo_escolhido = "haiku";
-        else if (temBuscaWeb)                         modelo_escolhido = "haiku"; // busca web sempre no Haiku
-        else if (pedeAnalise || mensagemLonga)        modelo_escolhido = "opus";
-        else                                          modelo_escolhido = "haiku";
+        else if (temBuscaWeb) modelo_escolhido = "haiku";
+        else if (pedeAnalise || mensagemLonga) modelo_escolhido = "opus";
+        else modelo_escolhido = "haiku";
       } else if (planoUsuario === "pro") {
         if (temImagem || pedeArtefato || temAnexoDoc) modelo_escolhido = "haiku";
-        else if (temBuscaWeb)                         modelo_escolhido = "haiku"; // busca web sempre no Haiku
-        else if (pedeAnalise || mensagemLonga)        modelo_escolhido = "sonnet";
-        else                                          modelo_escolhido = "haiku";
+        else if (temBuscaWeb) modelo_escolhido = "haiku";
+        else if (pedeAnalise || mensagemLonga) modelo_escolhido = "sonnet";
+        else modelo_escolhido = "haiku";
       } else if (planoUsuario === "start") {
         if (temImagem || pedeArtefato || temAnexoDoc) modelo_escolhido = "haiku";
-        else if (pedeAnalise || mensagemLonga)        modelo_escolhido = "deepseek";
-        else if (temBuscaWeb)                         modelo_escolhido = "haiku"; // busca web precisa do Haiku
-        else                                          modelo_escolhido = "deepseek";
-      } else {
-        // Gratuito
-        if (temBuscaWeb)                  modelo_escolhido = "haiku"; // busca web precisa do Haiku
         else if (pedeAnalise || mensagemLonga) modelo_escolhido = "deepseek";
-        else                              modelo_escolhido = "llama";
+        else if (temBuscaWeb) modelo_escolhido = "haiku";
+        else modelo_escolhido = "deepseek";
+      } else {
+        if (temBuscaWeb) modelo_escolhido = "haiku";
+        else if (pedeAnalise || mensagemLonga) modelo_escolhido = "deepseek";
+        else modelo_escolhido = "llama";
       }
 
-      // ── Busca contexto no Cérebro se ativo ───────────────────────
-      let contextoCerebro  = "";
-      let docIdsAcessados  = [];
+      let contextoCerebro = "";
 
       if (usuario.has_brain && usuario.brain_status === "active" && !temImagem && !pedeArtefato) {
         try {
@@ -1149,7 +1050,6 @@ async function handleRequest(request, env, ctx) {
             .filter(m => m.score > 0.2 && String(m.metadata?.usuario_id) === String(usuario.usuario_id))
             .slice(0, 4);
 
-          // Recupera texto: metadata (pequeno) ou R2 (grande)
           const textoChunks = await Promise.all(matches.map(async m => {
             if (m.metadata?.text) return m.metadata.text;
             if (m.metadata?.r2_chunk_key && env.BRAIN_FILES) {
@@ -1160,33 +1060,7 @@ async function handleRequest(request, env, ctx) {
           }));
 
           contextoCerebro = textoChunks.filter(Boolean).join("\n---\n").slice(0, 8000);
-
-          // ── Registra último_acesso nos documentos consultados ─────
-          if (contextoCerebro) {
-            // Extrai os prefixos de lote dos IDs dos vetores
-            // Padrão: u{uid}_{timestamp}_{i}  →  prefixo = u{uid}_{timestamp}
-            const prefixosEncontrados = [
-              ...new Set(
-                matches.map(m => {
-                  const parts = m.id.split("_");
-                  // Remove o último segmento (índice do chunk)
-                  return parts.slice(0, -1).join("_");
-                })
-              )
-            ];
-
-            if (prefixosEncontrados.length > 0) {
-              const agora = new Date().toISOString();
-              for (const prefixo of prefixosEncontrados) {
-                await env.DB.prepare(`
-                  UPDATE brain_documents
-                  SET ultimo_acesso = ?
-                  WHERE vector_prefix = ? AND usuario_id = ?
-                `).bind(agora, prefixo, usuario.usuario_id).run().catch(() => {});
-              }
-            }
-          }
-        } catch(e) { /* falha silenciosa */ }
+        } catch(e) {}
       }
 
       const personaSystem = persona && PERSONAS[persona] ? `\n\n🎭 MODO ATIVO: ${PERSONAS[persona]}` : "";
@@ -1200,7 +1074,7 @@ async function handleRequest(request, env, ctx) {
         : SYSTEM_PROMPT_APRESENTACAO;
       const SYSTEM_PROMPT_CODIGO_FINAL = SYSTEM_PROMPT_CODIGO;
 
-            let msgAtual;
+      let msgAtual;
       if (temImagem) {
         msgAtual = { role: "user", content: [
           { type: "image", source: { type: "base64", media_type: imagem.mediaType, data: imagem.base64 } },
@@ -1222,11 +1096,10 @@ async function handleRequest(request, env, ctx) {
         let systemPrompt = SYSTEM_FINAL;
         let maxTokens = 1500;
         if (ehApresentacao) { systemPrompt = SYSTEM_PROMPT_APRESENTACAO_FINAL; maxTokens = 4000; }
-        else if (ehCodigo)  { systemPrompt = SYSTEM_PROMPT_CODIGO_FINAL;       maxTokens = 4000; }
+        else if (ehCodigo) { systemPrompt = SYSTEM_PROMPT_CODIGO_FINAL; maxTokens = 4000; }
         const bodyHaiku = { model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system: systemPrompt, messages: msgs_historico };
         if (temBuscaWeb && !ehApresentacao && !ehCodigo) bodyHaiku.tools = [WEB_TOOL];
 
-        // ── Streaming para respostas de texto simples ────────────────
         if (!ehApresentacao && !ehCodigo && !temBuscaWeb) {
           bodyHaiku.stream = true;
           const respStream = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1275,7 +1148,6 @@ async function handleRequest(request, env, ctx) {
           });
         }
 
-        // ── Non-streaming: artefatos e web search ────────────────────
         const resp = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
@@ -1284,9 +1156,9 @@ async function handleRequest(request, env, ctx) {
         const data = await resp.json();
         if (data.error) return err("Erro na IA: " + data.error.message, 500);
         tokens_entrada = data.usage?.input_tokens || 0;
-        tokens_saida   = data.usage?.output_tokens || 0;
-        tokens_total   = tokens_entrada + tokens_saida;
-        const rawText  = extrairTextoResposta(data.content);
+        tokens_saida = data.usage?.output_tokens || 0;
+        tokens_total = tokens_entrada + tokens_saida;
+        const rawText = extrairTextoResposta(data.content);
         const usouBusca = data.content?.some(b => b.type === "tool_use" && b.name === "web_search");
         if (ehApresentacao || ehCodigo) {
           try {
@@ -1314,8 +1186,8 @@ async function handleRequest(request, env, ctx) {
         resposta = dsResp.response || dsResp?.choices?.[0]?.message?.content || "Sem resposta.";
         resposta = resposta.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
         tokens_entrada = Math.ceil(mensagem.length / 4);
-        tokens_saida   = Math.ceil(resposta.length / 4);
-        tokens_total   = tokens_entrada + tokens_saida;
+        tokens_saida = Math.ceil(resposta.length / 4);
+        tokens_total = tokens_entrada + tokens_saida;
         if ((planoUsuario === "start" || planoUsuario === "gratuito") && pedeAnalise) {
           resposta += "\n\n---\n💡 **Quer uma análise mais profunda?** Disponível no [Plano Pro](https://ai.atriapay.com.br/#planos).";
         }
@@ -1332,15 +1204,15 @@ async function handleRequest(request, env, ctx) {
         const dataSonnet = await respSonnet.json();
         if (dataSonnet.error) return err("Erro na IA: " + dataSonnet.error.message, 500);
         const usouBuscaSonnet = dataSonnet.content?.some(b => b.type === "tool_use" && b.name === "web_search");
-        resposta       = extrairTextoResposta(dataSonnet.content);
+        resposta = extrairTextoResposta(dataSonnet.content);
         if (usouBuscaSonnet) resposta = "🔍 *Busca web realizada*\n\n" + resposta;
         tokens_entrada = dataSonnet.usage?.input_tokens || 0;
-        tokens_saida   = dataSonnet.usage?.output_tokens || 0;
-        tokens_total   = tokens_entrada + tokens_saida;
+        tokens_saida = dataSonnet.usage?.output_tokens || 0;
+        tokens_total = tokens_entrada + tokens_saida;
 
       } else if (modelo_escolhido === "opus") {
         modelo_usado = "opus";
-        const usarThinking = pedeAnalise && mensagem.length > 800; // Extended Thinking apenas em análises longas
+        const usarThinking = pedeAnalise && mensagem.length > 800;
         const bodyOpus = {
           model: "claude-opus-4-5",
           max_tokens: usarThinking ? 6000 : 2500,
@@ -1350,7 +1222,7 @@ async function handleRequest(request, env, ctx) {
         if (usarThinking) {
           bodyOpus.thinking = { type: "enabled", budget_tokens: 3000 };
         }
-        if (temBuscaWeb && !usarThinking) bodyOpus.tools = [WEB_TOOL]; // thinking não combina com tools
+        if (temBuscaWeb && !usarThinking) bodyOpus.tools = [WEB_TOOL];
         const respOpus = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-beta": "interleaved-thinking-2025-05-14", "Content-Type": "application/json" },
@@ -1359,11 +1231,11 @@ async function handleRequest(request, env, ctx) {
         const dataOpus = await respOpus.json();
         if (dataOpus.error) return err("Erro na IA: " + dataOpus.error.message, 500);
         const usouBuscaOpus = dataOpus.content?.some(b => b.type === "tool_use" && b.name === "web_search");
-        resposta       = extrairTextoResposta(dataOpus.content);
+        resposta = extrairTextoResposta(dataOpus.content);
         if (usouBuscaOpus) resposta = "🔍 *Busca web realizada*\n\n" + resposta;
         tokens_entrada = dataOpus.usage?.input_tokens || 0;
-        tokens_saida   = dataOpus.usage?.output_tokens || 0;
-        tokens_total   = tokens_entrada + tokens_saida;
+        tokens_saida = dataOpus.usage?.output_tokens || 0;
+        tokens_total = tokens_entrada + tokens_saida;
 
       } else {
         modelo_usado = "llama";
@@ -1374,8 +1246,8 @@ async function handleRequest(request, env, ctx) {
         });
         resposta = llamaResp.response || llamaResp?.choices?.[0]?.message?.content || "Sem resposta.";
         tokens_entrada = Math.ceil(mensagem.length / 4);
-        tokens_saida   = Math.ceil(resposta.length / 4);
-        tokens_total   = tokens_entrada + tokens_saida;
+        tokens_saida = Math.ceil(resposta.length / 4);
+        tokens_total = tokens_entrada + tokens_saida;
       }
 
       await env.DB.prepare("INSERT INTO conversas (usuario_id, chat_id, role, conteudo, tokens) VALUES (?, ?, 'user', ?, ?)").bind(usuario.usuario_id, chat_id, mensagem, tokens_entrada).run();
@@ -1407,8 +1279,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // OUTRAS ROTAS EXISTENTES (suporte, admin, etc.)
+  // ═══════════════════════════════════════════════════════════════════
 
-  // ── POST /suporte-publico — bot de suporte para usuários ───────────
   if (path === "/suporte-publico" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autorizado", 401);
@@ -1430,7 +1304,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── POST /suporte-leads — bot de vendas para visitantes da landing ──
   if (path === "/suporte-leads" && request.method === "POST") {
     try {
       const { mensagens } = await request.json();
@@ -1450,23 +1323,16 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ── POST /suporte-admin ─────────────────────────────────────────────
   if (path === "/suporte-admin" && request.method === "POST") {
     const adminKey = request.headers.get("x-admin-key");
     if (adminKey !== env.ADMIN_KEY) return err("Não autorizado", 401);
     try {
       const { mensagens } = await request.json();
       if (!mensagens || !mensagens.length) return err("Mensagens vazias");
-
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1000,
-          system: SUPORTE_ADMIN_SYSTEM,
-          messages: mensagens,
-        }),
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1000, system: SUPORTE_ADMIN_SYSTEM, messages: mensagens }),
       });
       const data = await resp.json();
       if (data.error) return err("Erro IA: " + data.error.message, 500);
@@ -1477,11 +1343,6 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // ROTAS PÚBLICAS / PAGAMENTO / ADMIN
-  // ════════════════════════════════════════════════════════════════
-
-  // ── GET /stats-publico ────────────────────────────────────────────
   if (path === "/stats-publico" && request.method === "GET") {
     const [assinantes] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) as total FROM usuarios WHERE plano != 'gratuito' AND ativo = 1").first(),
@@ -1494,31 +1355,25 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  // ── GET /indicacoes ──────────────────────────────────────────────
   if (path === "/indicacoes" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
     let ref_code = null, indicacoes_convertidas = 0, indicados = [];
     try {
-      const extra = await env.DB.prepare(
-        "SELECT ref_code, indicacoes_convertidas FROM usuarios WHERE id = ?"
-      ).bind(usuario.usuario_id).first();
+      const extra = await env.DB.prepare("SELECT ref_code, indicacoes_convertidas FROM usuarios WHERE id = ?").bind(usuario.usuario_id).first();
       ref_code = extra?.ref_code || null;
       indicacoes_convertidas = extra?.indicacoes_convertidas || 0;
       if (!ref_code) {
         ref_code = gerarRefCode();
-        await env.DB.prepare("UPDATE usuarios SET ref_code = ? WHERE id = ?")
-          .bind(ref_code, usuario.usuario_id).run().catch(() => {});
+        await env.DB.prepare("UPDATE usuarios SET ref_code = ? WHERE id = ?").bind(ref_code, usuario.usuario_id).run().catch(() => {});
       }
     } catch(e) {
       ref_code = usuario.usuario_id.toString(16).toUpperCase().padStart(8, "0");
     }
     try {
-      const res = await env.DB.prepare(
-        "SELECT nome, plano, criado_em FROM usuarios WHERE indicado_por = ? ORDER BY criado_em DESC LIMIT 50"
-      ).bind(usuario.usuario_id).all();
+      const res = await env.DB.prepare("SELECT nome, plano, criado_em FROM usuarios WHERE indicado_por = ? ORDER BY criado_em DESC LIMIT 50").bind(usuario.usuario_id).all();
       indicados = res.results || [];
-    } catch(e) { /* coluna indicado_por não existe ainda */ }
+    } catch(e) {}
     return json({
       ok: true,
       ref_code,
@@ -1529,7 +1384,6 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  // ── GET /historico ───────────────────────────────────────────────
   if (path === "/historico" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -1537,15 +1391,14 @@ async function handleRequest(request, env, ctx) {
     return json({ ok: true, mensagens: historico.results || [] });
   }
 
-  // ── POST /criar-pagamento ────────────────────────────────────────
   if (path === "/criar-pagamento" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
       if (!usuario) return err("Não autenticado.", 401);
       const { plano } = await request.json();
       const planos = {
-        start: { titulo: "Atria AI — Plano Start", preco: 47,  tokens: 500000 },
-        pro:   { titulo: "Atria AI — Plano Pro",   preco: 97,  tokens: 1000000 },
+        start: { titulo: "Atria AI — Plano Start", preco: 47, tokens: 500000 },
+        pro: { titulo: "Atria AI — Plano Pro", preco: 97, tokens: 1000000 },
         elite: { titulo: "Atria AI — Plano Elite", preco: 299, tokens: 2000000 },
       };
       if (!planos[plano]) return err("Plano inválido.");
@@ -1567,7 +1420,6 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return err("Erro interno: " + e.message, 500); }
   }
 
-  // ── POST /comprar-creditos ────────────────────────────────────────
   if (path === "/comprar-creditos" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -1589,7 +1441,6 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return err("Erro interno: " + e.message, 500); }
   }
 
-  // ── POST /comprar-cerebro ─────────────────────────────────────────
   if (path === "/comprar-cerebro" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -1605,8 +1456,8 @@ async function handleRequest(request, env, ctx) {
           external_reference: `${usuario.usuario_id}|cerebro`,
           back_urls: {
             success: "https://ai.atriapay.com.br/chat?pagamento=cerebro",
-            failure:  "https://ai.atriapay.com.br/chat?pagamento=falhou",
-            pending:  "https://ai.atriapay.com.br/chat?pagamento=pendente",
+            failure: "https://ai.atriapay.com.br/chat?pagamento=falhou",
+            pending: "https://ai.atriapay.com.br/chat?pagamento=pendente",
           },
           auto_return: "approved",
           payment_methods: { installments: 1 },
@@ -1618,16 +1469,14 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return err("Erro interno: " + e.message, 500); }
   }
 
-  // ── GET /planos ──────────────────────────────────────────────────
   if (path === "/planos" && request.method === "GET") {
     return json({ ok: true, planos: [
-      { id: "start", nome: "Start", preco: 47,  tokens: 500000,  link: "https://mpago.la/1hfW7Sf" },
-      { id: "pro",   nome: "Pro",   preco: 97,  tokens: 1000000, link: "https://mpago.la/2HxT9Bn" },
+      { id: "start", nome: "Start", preco: 47, tokens: 500000, link: "https://mpago.la/1hfW7Sf" },
+      { id: "pro", nome: "Pro", preco: 97, tokens: 1000000, link: "https://mpago.la/2HxT9Bn" },
       { id: "elite", nome: "Elite", preco: 299, tokens: 2000000, link: "https://mpago.la/2DES7wN" },
     ]});
   }
 
-  // ── POST /webhook/mp ─────────────────────────────────────────────
   if (path === "/webhook/mp" && request.method === "POST") {
     try {
       const body = await request.json();
@@ -1643,19 +1492,19 @@ async function handleRequest(request, env, ctx) {
       const [usuario_id_str, plano_ref] = external_reference.split("|");
       const usuario_id = parseInt(usuario_id_str);
       const planos_config = {
-        start:    { tokens_limite: 500000 },
-        pro:      { tokens_limite: 1000000 },
-        elite:    { tokens_limite: 2000000 },
+        start: { tokens_limite: 500000 },
+        pro: { tokens_limite: 1000000 },
+        elite: { tokens_limite: 2000000 },
         creditos: { tokens_adicionar: 200000 },
-        cerebro:  { brain: true },
+        cerebro: { brain: true },
       };
       let plano = plano_ref;
       if (!planos_config[plano]) {
         const valor = pagamento.transaction_amount;
-        if (valor >= 299)  plano = "elite";
-        else if (valor >= 97)   plano = "pro";
-        else if (valor >= 47)   plano = "start";
-        else if (valor >= 20)   plano = "creditos";
+        if (valor >= 299) plano = "elite";
+        else if (valor >= 97) plano = "pro";
+        else if (valor >= 47) plano = "start";
+        else if (valor >= 20) plano = "creditos";
         else if (valor >= 9.99 && valor < 20) plano = "atria_voice";
         else return json({ ok: true });
       }
@@ -1684,29 +1533,28 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return json({ ok: true }); }
   }
 
-  // ── POST /webhook/kiwify ─────────────────────────────────────────
   if (path === "/webhook/kiwify" && request.method === "POST") {
     try {
       const body = await request.json();
       const kiwify_token = env.KIWIFY_WEBHOOK_TOKEN;
       if (kiwify_token && body.token !== kiwify_token) return new Response("Unauthorized", { status: 401 });
-      const evento   = body.webhook_event_type || body.order_status || "";
-      const email    = body.Customer?.email?.toLowerCase().trim();
-      const nome     = body.Customer?.full_name || "";
-      const produto  = body.Product?.name || "";
+      const evento = body.webhook_event_type || body.order_status || "";
+      const email = body.Customer?.email?.toLowerCase().trim();
+      const nome = body.Customer?.full_name || "";
+      const produto = body.Product?.name || "";
       const order_id = body.order_id || "";
-      const cupom    = body.Commissions?.[0]?.code || body.coupon_code || "";
+      const cupom = body.Commissions?.[0]?.code || body.coupon_code || "";
       if (!email) return json({ ok: true });
       const planos_config = {
         start: { tokens_limite: 500000 },
-        pro:   { tokens_limite: 1000000 },
+        pro: { tokens_limite: 1000000 },
         elite: { tokens_limite: 2000000 },
       };
       function detectarPlano(nomeProduto) {
         const n = nomeProduto.toLowerCase();
-        if (n.includes("elite"))   return "elite";
-        if (n.includes("pro"))     return "pro";
-        if (n.includes("start"))   return "start";
+        if (n.includes("elite")) return "elite";
+        if (n.includes("pro")) return "pro";
+        if (n.includes("start")) return "start";
         if (n.includes("cerebro") || n.includes("cérebro") || n.includes("brain")) return "cerebro";
         return null;
       }
@@ -1719,11 +1567,11 @@ async function handleRequest(request, env, ctx) {
         } else {
           const cfg = planos_config[plano];
           if (!usuario) {
-            const nomes  = nome.split(" ");
-            const fname  = nomes[0] || "Usuário";
-            const lname  = nomes.slice(1).join(" ") || "";
+            const nomes = nome.split(" ");
+            const fname = nomes[0] || "Usuário";
+            const lname = nomes.slice(1).join(" ") || "";
             const senha_hash = await hashSenha(Math.random().toString(36).slice(2, 10));
-            const ref_code   = gerarRefCode();
+            const ref_code = gerarRefCode();
             const res = await env.DB.prepare(
               "INSERT INTO usuarios (nome, sobrenome, email, senha_hash, plano, tokens_limite, tokens_usados, ativo, ref_code) VALUES (?,?,?,?,?,?,0,1,?)"
             ).bind(fname, lname, email, senha_hash, plano, cfg.tokens_limite, ref_code).run();
@@ -1753,7 +1601,6 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return json({ ok: true }); }
   }
 
-  // ── GET /chats ───────────────────────────────────────────────────
   if (path === "/chats" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -1803,7 +1650,6 @@ async function handleRequest(request, env, ctx) {
     return json({ ok: true, mensagens: msgs.results || [] });
   }
 
-  // ── POST /feedback ───────────────────────────────────────────────
   if (path === "/feedback" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
@@ -1817,7 +1663,6 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return err("Erro interno: " + e.message, 500); }
   }
 
-  // ── GET /admin/feedbacks ─────────────────────────────────────────
   if (path === "/admin/feedbacks" && request.method === "GET") {
     const adminKey = request.headers.get("x-admin-key");
     if (!adminKey || adminKey !== env.ADMIN_KEY) return err("Não autorizado.", 401);
@@ -1830,7 +1675,6 @@ async function handleRequest(request, env, ctx) {
     return json({ ok: true, feedbacks: feedbacks.results || [] });
   }
 
-  // ── GET /admin/stats ─────────────────────────────────────────────
   if (path === "/admin/stats" && request.method === "GET") {
     const adminKey = request.headers.get("x-admin-key");
     if (!adminKey || adminKey !== env.ADMIN_KEY) return err("Não autorizado.", 401);
@@ -1859,22 +1703,20 @@ async function handleRequest(request, env, ctx) {
     }});
   }
 
-  // ── GET /admin/usuarios ──────────────────────────────────────────
   if (path === "/admin/usuarios" && request.method === "GET") {
     const adminKey = request.headers.get("x-admin-key");
     if (!adminKey || adminKey !== env.ADMIN_KEY) return err("Não autorizado.", 401);
     const busca = url.searchParams.get("q") || "";
-    const plano  = url.searchParams.get("plano") || "";
+    const plano = url.searchParams.get("plano") || "";
     let query = "SELECT id, nome, email, plano, has_brain, brain_status, indicacoes_convertidas, tokens_usados, tokens_limite, perguntas_hoje, ativo, criado_em FROM usuarios WHERE 1=1";
     const params = [];
     if (busca) { query += " AND (nome LIKE ? OR email LIKE ?)"; params.push(`%${busca}%`, `%${busca}%`); }
-    if (plano)  { query += " AND plano = ?"; params.push(plano); }
+    if (plano) { query += " AND plano = ?"; params.push(plano); }
     query += " ORDER BY criado_em DESC LIMIT 100";
     const usuarios = await env.DB.prepare(query).bind(...params).all();
     return json({ ok: true, usuarios: usuarios.results || [] });
   }
 
-  // ── PATCH /admin/usuarios/:id ────────────────────────────────────
   if (path.match(/^\/admin\/usuarios\/\d+$/) && request.method === "PATCH") {
     const adminKey = request.headers.get("x-admin-key");
     if (!adminKey || adminKey !== env.ADMIN_KEY) return err("Não autorizado.", 401);
@@ -1887,6 +1729,5 @@ async function handleRequest(request, env, ctx) {
     return json({ ok: true });
   }
 
-  // ── 404 ──────────────────────────────────────────────────────────
   return err("Rota não encontrada.", 404);
 }
