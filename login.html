@@ -3,242 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ATRIA METRIC | Login</title>
-    
-    <!-- Tailwind CSS -->
+    <title>ATRIA METRIC | Acesso</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    
-    <!-- Fonte Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
     <style>
         * { font-family: 'Inter', sans-serif; }
-        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        
-        .plan-option {
-            transition: all 0.2s;
-            cursor: pointer;
-            border: 2px solid #e2e8f0;
-        }
-        .plan-option.selected {
-            border-color: #10b981;
-            background-color: #f0fdf4;
-        }
-        .hidden { display: none; }
-        
-        .glass-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
+        body { background: #0a0f1c; }
+        .glass { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-4">
+<body class="min-h-screen flex items-center justify-center p-4">
 
-    <div class="max-w-md w-full glass-card rounded-[2rem] shadow-2xl p-8 border border-white/20">
+    <div class="max-w-md w-full glass p-8 rounded-[2.5rem] shadow-2xl">
         <div class="text-center mb-8">
-            <div class="inline-flex items-center gap-2 mb-4">
-                <div class="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg">
-                    <span class="font-bold text-white text-lg">AM</span>
-                </div>
-                <span class="text-2xl font-black tracking-tighter text-slate-900">ATRIA METRIC</span>
-            </div>
-            <h2 id="authTitle" class="text-2xl font-bold text-slate-900">Bem-vindo</h2>
+            <div class="w-16 h-16 bg-emerald-500 rounded-2xl flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4 shadow-lg shadow-emerald-500/20">AM</div>
+            <h1 id="authTitle" class="text-3xl font-black text-white mb-2">Entrar na Atria</h1>
+            <p id="authSubtitle" class="text-slate-400">Acesse sua auditoria de métricas</p>
         </div>
 
-        <!-- FORMULÁRIO DE LOGIN -->
         <form id="loginForm" class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                <input type="email" id="loginEmail" placeholder="seu@email.com" required 
-                       class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">E-mail</label>
+                <input type="email" id="loginEmail" required class="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-white focus:border-emerald-500 outline-none transition" placeholder="seu@email.com">
             </div>
-            
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Senha</label>
-                <input type="password" id="loginPassword" placeholder="••••••••" required 
-                       class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Senha</label>
+                <input type="password" id="loginSenha" required class="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-white focus:border-emerald-500 outline-none transition" placeholder="••••••••">
             </div>
-            
-            <button type="submit" class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-emerald-600 transition shadow-lg">
-                Entrar
+            <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black py-4 rounded-2xl transition transform active:scale-95 shadow-xl shadow-emerald-500/20">
+                Acessar Dashboard
             </button>
-            
-            <p class="text-center text-sm text-slate-600">
-                Novo aqui? 
-                <a href="#" onclick="toggleAuth()" class="text-emerald-600 font-bold hover:text-emerald-700">
-                    Criar conta
-                </a>
-            </p>
         </form>
 
-        <!-- FORMULÁRIO DE CADASTRO -->
         <form id="registerForm" class="space-y-4 hidden">
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                <input type="text" id="regName" placeholder="João Silva" required 
-                       class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Nome Completo</label>
+                <input type="text" id="regNome" required class="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-white focus:border-emerald-500 outline-none transition">
             </div>
-            
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                <input type="email" id="regEmail" placeholder="seu@email.com" required 
-                       class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">E-mail Corporativo</label>
+                <input type="email" id="regEmail" required class="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-white focus:border-emerald-500 outline-none transition">
             </div>
-            
             <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1">Senha</label>
-                <input type="password" id="regPassword" placeholder="••••••••" required 
-                       class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Senha</label>
+                <input type="password" id="regSenha" required class="w-full bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4 text-white focus:border-emerald-500 outline-none transition">
             </div>
-            
-            <!-- Seleção de Planos (simplificada) -->
-            <div class="py-2">
-                <label class="block text-sm font-medium text-slate-700 mb-2">Escolha seu plano</label>
-                <div class="grid grid-cols-3 gap-2">
-                    <div onclick="selectPlan('FREE')" id="planFREE" 
-                         class="plan-option selected p-3 rounded-xl text-center text-xs font-bold border-emerald-500 bg-emerald-50">
-                        FREE
-                    </div>
-                    <div onclick="selectPlan('PRO')" id="planPRO" 
-                         class="plan-option p-3 rounded-xl text-center text-xs font-bold">
-                        PRO
-                    </div>
-                    <div onclick="selectPlan('ELITE')" id="planELITE" 
-                         class="plan-option p-3 rounded-xl text-center text-xs font-bold">
-                        ELITE
-                    </div>
-                </div>
-            </div>
-            
-            <button type="submit" class="w-full bg-emerald-500 text-white py-4 rounded-xl font-bold hover:bg-emerald-600 transition shadow-lg">
-                Criar conta gratuita
+            <button type="submit" class="w-full bg-white text-slate-900 font-black py-4 rounded-2xl transition transform active:scale-95 shadow-xl">
+                Criar Minha Conta
             </button>
-            
-            <p class="text-center text-sm text-slate-600">
-                Já tem conta? 
-                <a href="#" onclick="toggleAuth()" class="text-emerald-600 font-bold hover:text-emerald-700">
-                    Fazer login
-                </a>
-            </p>
         </form>
+
+        <div class="mt-8 text-center">
+            <button id="toggleAuth" class="text-sm font-semibold text-slate-400 hover:text-emerald-400 transition">
+                Não tem uma conta? <span class="text-white">Cadastre-se grátis</span>
+            </button>
+        </div>
     </div>
 
     <script>
-        // CONFIGURAÇÃO FIREBASE
-        const firebaseConfig = {
-            apiKey: "AIzaSyDriqIDcvDWnPc6D2YGJxCN4_E9V6TaodM",
-            authDomain: "atria-metric-production.firebaseapp.com",
-            projectId: "atria-metric-production",
-            storageBucket: "atria-metric-production.firebasestorage.app",
-            messagingSenderId: "657383699546",
-            appId: "1:657383699546:web:91a73edc6e8045fc6c9463"
-        };
+        // URL DO SEU WORKER DE AUTH (Verifique se é esta mesma)
+        const AUTH_API = "https://atria-auth-worker.jonhyelson.workers.dev";
 
-        // Inicializar Firebase
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        const loginForm = document.getElementById('loginForm');
+        const registerForm = document.getElementById('registerForm');
+        const toggleBtn = document.getElementById('toggleAuth');
+        const authTitle = document.getElementById('authTitle');
 
-        // Variável do plano selecionado
-        let selectedPlan = 'FREE';
-
-        // Alternar entre login e cadastro
-        function toggleAuth() {
-            document.getElementById('loginForm').classList.toggle('hidden');
-            document.getElementById('registerForm').classList.toggle('hidden');
-            
-            const title = document.getElementById('authTitle');
-            if (document.getElementById('loginForm').classList.contains('hidden')) {
-                title.innerText = 'Criar conta';
-            } else {
-                title.innerText = 'Bem-vindo';
-            }
-        }
-
-        // Selecionar plano
-        function selectPlan(plan) {
-            selectedPlan = plan;
-            document.querySelectorAll('.plan-option').forEach(el => {
-                el.classList.remove('selected', 'border-emerald-500', 'bg-emerald-50');
-                el.classList.add('border-slate-200');
-            });
-            document.getElementById('plan' + plan).classList.add('selected', 'border-emerald-500', 'bg-emerald-50');
-        }
-
-        // ==========================================
-        // LOGIN - REDIRECIONAMENTO SIMPLES
-        // ==========================================
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const email = document.getElementById('loginEmail').value;
-            const senha = document.getElementById('loginPassword').value;
-
-            try {
-                console.log('🔐 Tentando login...');
-                await auth.signInWithEmailAndPassword(email, senha);
-                console.log('✅ Login sucesso!');
-                
-                // REDIRECIONAMENTO SIMPLES - MESMA PASTA
-                window.location.href = 'dashboard.html';
-                
-            } catch (error) {
-                console.error('❌ Erro:', error);
-                alert('Erro no login: ' + error.message);
-            }
+        // Alternar entre Login e Cadastro
+        toggleBtn.addEventListener('click', () => {
+            const isLogin = !loginForm.classList.contains('hidden');
+            loginForm.classList.toggle('hidden');
+            registerForm.classList.toggle('hidden');
+            authTitle.innerText = isLogin ? "Criar Conta" : "Entrar na Atria";
+            toggleBtn.innerHTML = isLogin ? 'Já tem conta? <span class="text-white">Fazer Login</span>' : 'Não tem uma conta? <span class="text-white">Cadastre-se grátis</span>';
         });
 
-        // ==========================================
-        // CADASTRO - REDIRECIONAMENTO SIMPLES
-        // ==========================================
-        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        // Lógica de Registro
+        registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            const nome = document.getElementById('regName').value;
-            const email = document.getElementById('regEmail').value;
-            const senha = document.getElementById('regPassword').value;
+            const btn = e.target.querySelector('button');
+            btn.innerText = "Criando...";
+            btn.disabled = true;
 
             try {
-                console.log('📝 Criando conta...');
-                const res = await auth.createUserWithEmailAndPassword(email, senha);
-                
-                // Gerar Pixel ID único
-                const pixelId = 'AM-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-                
-                // Salvar no Firestore
-                await db.collection('clientes').doc(res.user.uid).set({
-                    nome: nome,
-                    email: email,
-                    pixelID: pixelId,
-                    plano: selectedPlan,
-                    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-                    statusPagamento: selectedPlan === 'FREE' ? 'ativo' : 'pendente',
-                    ultimoAcesso: firebase.firestore.FieldValue.serverTimestamp()
+                const res = await fetch(`${AUTH_API}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        nome: document.getElementById('regNome').value,
+                        email: document.getElementById('regEmail').value,
+                        senha: document.getElementById('regSenha').value
+                    })
                 });
 
-                console.log('✅ Conta criada!');
-                
-                // REDIRECIONAMENTO SIMPLES - MESMA PASTA
-                window.location.href = 'dashboard.html';
-                
-            } catch (error) {
-                console.error('❌ Erro:', error);
-                alert('Erro no cadastro: ' + error.message);
+                const data = await res.json();
+                if (data.success) {
+                    alert("Conta criada! Agora faça login.");
+                    location.reload();
+                } else {
+                    alert(data.error || "Erro ao cadastrar.");
+                }
+            } catch (err) {
+                alert("Erro na conexão com o servidor.");
+            } finally {
+                btn.innerText = "Criar Minha Conta";
+                btn.disabled = false;
             }
         });
 
-        // ==========================================
-        // VERIFICAR SESSÃO
-        // ==========================================
-        auth.onAuthStateChanged((user) => {
-            if (user) {
-                console.log('👤 Usuário já logado');
-                // Não redireciona automático para não atrapalhar
+        // Lógica de Login
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.innerText = "Autenticando...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`${AUTH_API}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('loginEmail').value,
+                        senha: document.getElementById('loginSenha').value
+                    })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    // Salva os dados do usuário no LocalStorage para o Dashboard usar
+                    localStorage.setItem('atria_user', JSON.stringify(data.user));
+                    window.location.href = 'dashboard.html';
+                } else {
+                    alert(data.error || "E-mail ou senha incorretos.");
+                }
+            } catch (err) {
+                alert("Erro na conexão com o servidor.");
+            } finally {
+                btn.innerText = "Acessar Dashboard";
+                btn.disabled = false;
             }
         });
     </script>
