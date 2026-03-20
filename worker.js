@@ -94,7 +94,6 @@ function gerarRefCode() {
   return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
 }
 
-// Premia quem indicou com 200k tokens quando o indicado assina um plano pago
 async function premiarIndicador(uid, DB) {
   try {
     const indicado = await DB.prepare("SELECT indicado_por FROM usuarios WHERE id = ?").bind(uid).first();
@@ -230,7 +229,7 @@ async function arquivarArquivosInativos(env) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// NANO BANANA — Geração de Imagens
+// NANO BANANA — Geração de Imagens (CORRIGIDO)
 // ═══════════════════════════════════════════════════════════════════
 
 async function gerarImagemNanoBanana(prompt, estilo, env) {
@@ -253,7 +252,8 @@ async function gerarImagemNanoBanana(prompt, estilo, env) {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${env.NANO_BANANA_API_KEY}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Accept": "application/json"
     },
     body: JSON.stringify({
       prompt: fullPrompt,
@@ -262,20 +262,51 @@ async function gerarImagemNanoBanana(prompt, estilo, env) {
       height: 512,
       steps: 25,
       cfg_scale: 7,
-      seed: Math.floor(Math.random() * 1000000)
+      seed: Math.floor(Math.random() * 1000000),
+      stream: false
     })
   });
   
   if (!response.ok) {
     const erro = await response.text();
-    console.error("[NanoBanana] Erro:", response.status, erro);
-    throw new Error(`Falha na geração: ${response.status}`);
+    console.error("[NanoBanana] Erro HTTP:", response.status, erro);
+    throw new Error(`Falha na geração: ${response.status} - ${erro.substring(0, 200)}`);
   }
   
-  const data = await response.json();
-  const imagemBase64 = data.image || data.data?.image || data.output?.image;
+  const text = await response.text();
+  console.log("[NanoBanana] Resposta recebida, tamanho:", text.length);
+  
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch(e) {
+    if (text.startsWith("event:")) {
+      const lines = text.split("\n");
+      let jsonData = null;
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            jsonData = JSON.parse(line.substring(6));
+            break;
+          } catch(e) {}
+        }
+      }
+      if (jsonData) {
+        data = jsonData;
+      } else {
+        console.error("[NanoBanana] Resposta bruta:", text.substring(0, 500));
+        throw new Error("Formato de resposta não reconhecido (SSE sem dados válidos)");
+      }
+    } else {
+      console.error("[NanoBanana] Resposta não é JSON:", text.substring(0, 500));
+      throw new Error("Resposta da API não é JSON válido");
+    }
+  }
+  
+  const imagemBase64 = data.image || data.data?.image || data.output?.image || data.images?.[0]?.image || data.result?.image;
   
   if (!imagemBase64) {
+    console.error("[NanoBanana] Estrutura da resposta:", Object.keys(data));
     throw new Error("Resposta da API não contém imagem.");
   }
   
@@ -453,7 +484,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // ROTAS EXISTENTES (mantidas)
+  // ROTA: CADASTRO
   // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/cadastro" && request.method === "POST") {
@@ -486,6 +517,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: LOGIN
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/login" && request.method === "POST") {
     try {
       const { email, senha } = await request.json();
@@ -504,6 +539,10 @@ async function handleRequest(request, env, ctx) {
       return err("Erro interno: " + e.message, 500);
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: ESQUECI SENHA
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/esqueci-senha" && request.method === "POST") {
     try {
@@ -539,6 +578,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: REDEFINIR SENHA
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/redefinir-senha" && request.method === "POST") {
     try {
       const { token, senha } = await request.json();
@@ -565,6 +608,10 @@ async function handleRequest(request, env, ctx) {
       return err("Erro ao redefinir senha: " + e.message, 500);
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: ME
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/me" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
@@ -608,6 +655,10 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: ATRIA VOICE TRIAL
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/atria-voice/trial" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -618,11 +669,19 @@ async function handleRequest(request, env, ctx) {
     return json({ ok: true, trial_inicio: agora });
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: CRIAR PAGAMENTO ATRIA
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/criar-pagamento-atria" && request.method === "POST") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
     return json({ ok: true, url: "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=7a58c91d66e44ac68574e90ab3c34b89" });
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: LOGOUT
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/logout" && request.method === "POST") {
     const token = extrairToken(request);
@@ -631,7 +690,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // MÓDULO CÉREBRO (rotas existentes — mantidas)
+  // MÓDULO CÉREBRO - INDEX
   // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/brain/index" && request.method === "POST") {
@@ -716,6 +775,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // MÓDULO CÉREBRO - FILES
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/brain/files" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -738,6 +801,10 @@ async function handleRequest(request, env, ctx) {
       return json({ ok: true, files: [] });
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MÓDULO CÉREBRO - DELETE FILE
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path.match(/^\/brain\/files\/[^/]+$/) && request.method === "DELETE") {
     const usuario = await autenticar(request, env.DB);
@@ -776,6 +843,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // MÓDULO CÉREBRO - QUERY
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/brain/query" && request.method === "POST") {
     try {
       const usuario = await autenticar(request, env.DB);
@@ -812,6 +883,10 @@ async function handleRequest(request, env, ctx) {
       return err("Erro na busca: " + e.message, 500);
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: FETCH URL
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/fetch-url" && request.method === "POST") {
     try {
@@ -923,6 +998,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTA: BRAIN STATUS
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/brain/status" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -934,7 +1013,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // CHAT
+  // ROTA: CHAT
   // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/chat" && request.method === "POST") {
@@ -1280,7 +1359,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // OUTRAS ROTAS EXISTENTES (suporte, admin, etc.)
+  // ROTAS DE SUPORTE
   // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/suporte-publico" && request.method === "POST") {
@@ -1343,6 +1422,10 @@ async function handleRequest(request, env, ctx) {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTAS PÚBLICAS
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/stats-publico" && request.method === "GET") {
     const [assinantes] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) as total FROM usuarios WHERE plano != 'gratuito' AND ativo = 1").first(),
@@ -1390,6 +1473,10 @@ async function handleRequest(request, env, ctx) {
     const historico = await env.DB.prepare("SELECT role, conteudo, criado_em FROM conversas WHERE usuario_id = ? ORDER BY criado_em ASC LIMIT 50").bind(usuario.usuario_id).all();
     return json({ ok: true, mensagens: historico.results || [] });
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTAS DE PAGAMENTO
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/criar-pagamento" && request.method === "POST") {
     try {
@@ -1476,6 +1563,10 @@ async function handleRequest(request, env, ctx) {
       { id: "elite", nome: "Elite", preco: 299, tokens: 2000000, link: "https://mpago.la/2DES7wN" },
     ]});
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WEBHOOKS
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/webhook/mp" && request.method === "POST") {
     try {
@@ -1601,6 +1692,10 @@ async function handleRequest(request, env, ctx) {
     } catch (e) { return json({ ok: true }); }
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTAS DE CHATS
+  // ═══════════════════════════════════════════════════════════════════
+
   if (path === "/chats" && request.method === "GET") {
     const usuario = await autenticar(request, env.DB);
     if (!usuario) return err("Não autenticado.", 401);
@@ -1649,6 +1744,10 @@ async function handleRequest(request, env, ctx) {
     const msgs = await env.DB.prepare("SELECT role, conteudo, criado_em FROM conversas WHERE chat_id = ? ORDER BY criado_em ASC").bind(chat_id).all();
     return json({ ok: true, mensagens: msgs.results || [] });
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ROTAS DE FEEDBACK E ADMIN
+  // ═══════════════════════════════════════════════════════════════════
 
   if (path === "/feedback" && request.method === "POST") {
     try {
