@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Atria AI — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:       #080810;
+  --surface:  #0f0f1a;
+  --surface2: #141422;
+  --border:   rgba(255,255,255,0.06);
+  --cyan:     #00d4d4;
+  --purple:   #9b7fff;
+  --green:    #00e676;
+  --orange:   #ffaa44;
+  --red:      #ff5252;
+  --text:     #f0f0f5;
+  --muted:    #6b6b80;
+  --font:     'DM Sans', sans-serif;
+  --mono:     'JetBrains Mono', monospace;
+}
+
+body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+/* ── LOGIN ── */
+#login-screen {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+}
+.login-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 48px; width: 100%; max-width: 380px;
+  box-shadow: 0 40px 80px rgba(0,0,0,0.5);
+}
+.login-logo {
+  font-family: var(--mono); font-size: 22px; font-weight: 600;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 8px;
+}
+.login-sub { font-size: 13px; color: var(--muted); margin-bottom: 32px; }
+.login-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; }
+.login-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; color: var(--text);
+  font-family: var(--mono); font-size: 14px; outline: none;
+  transition: border-color 0.2s; margin-bottom: 20px;
+}
+.login-input:focus { border-color: var(--cyan); }
+.login-btn {
+  width: 100%; padding: 13px; border-radius: 10px; border: none;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  color: #000; font-weight: 700; font-size: 14px; cursor: pointer;
+  font-family: var(--font); transition: opacity 0.2s;
+}
+.login-btn:hover { opacity: 0.9; }
+.login-err { color: var(--red); font-size: 13px; margin-top: 12px; text-align: center; display: none; }
+
+/* ── LAYOUT ── */
+#admin-screen { display: none; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 28px; border-bottom: 1px solid var(--border);
+  background: var(--surface); position: sticky; top: 0; z-index: 100;
+}
+.topbar-logo { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--cyan); }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-badge {
+  font-size: 11px; padding: 4px 10px; border-radius: 100px;
+  background: rgba(0,230,118,0.12); color: var(--green);
+  border: 1px solid rgba(0,230,118,0.2); font-family: var(--mono);
+}
+.logout-btn {
+  font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; font-family: var(--font);
+  transition: all 0.2s;
+}
+.logout-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+.main { padding: 28px; max-width: 1400px; margin: 0 auto; }
+
+/* ── TABS ── */
+.tabs { display: flex; gap: 4px; margin-bottom: 28px; }
+.tab {
+  padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); font-family: var(--font); transition: all 0.2s;
+}
+.tab.active { background: var(--surface2); border-color: var(--cyan); color: var(--cyan); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── CARDS DE MÉTRICAS ── */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.metric-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px 22px;
+  transition: border-color 0.2s;
+}
+.metric-card:hover { border-color: rgba(255,255,255,0.12); }
+.metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.metric-value { font-size: 32px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+.metric-value.cyan   { color: var(--cyan); }
+.metric-value.purple { color: var(--purple); }
+.metric-value.green  { color: var(--green); }
+.metric-value.orange { color: var(--orange); }
+.metric-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* ── PLANOS BREAKDOWN ── */
+.planos-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+.plano-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.plano-nome { font-size: 13px; font-weight: 600; }
+.plano-count { font-size: 24px; font-weight: 700; font-family: var(--mono); }
+.plano-count.free   { color: var(--muted); }
+.plano-count.start  { color: var(--cyan); }
+.plano-count.pro    { color: #00b4b4; }
+.plano-count.elite  { color: var(--purple); }
+.plano-count.brain  { color: #00e676; }
+.badge.brain { background: rgba(0,230,118,0.12); color: #00e676; border: 1px solid rgba(0,230,118,0.3); }
+
+/* ── SEÇÕES ── */
+.section-title {
+  font-size: 13px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.section-title::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+/* ── TABELA ── */
+.table-wrap {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden; margin-bottom: 28px;
+}
+.table-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.table-search {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; color: var(--text);
+  font-family: var(--font); font-size: 13px; outline: none;
+  width: 240px; transition: border-color 0.2s;
+}
+.table-search:focus { border-color: var(--cyan); }
+.filter-select {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; color: var(--text);
+  font-family: var(--font); font-size: 13px; outline: none; cursor: pointer;
+}
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 12px 18px;
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.01);
+}
+td {
+  padding: 12px 18px; font-size: 13px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+.badge {
+  font-size: 11px; font-weight: 600; padding: 3px 8px;
+  border-radius: 100px; font-family: var(--mono);
+}
+.badge.gratuito { background: rgba(107,107,128,0.2); color: var(--muted); }
+.badge.start    { background: rgba(0,212,212,0.12);  color: var(--cyan); }
+.badge.pro      { background: rgba(0,180,180,0.12);   color: #00b4b4; }
+.badge.elite    { background: rgba(155,127,255,0.15); color: var(--purple); }
+.badge.ativo    { background: rgba(0,230,118,0.12);  color: var(--green); }
+.badge.inativo  { background: rgba(255,82,82,0.12);  color: var(--red); }
+
+.tokens-bar-wrap { display: flex; align-items: center; gap: 8px; }
+.tokens-bar { height: 4px; background: var(--border); border-radius: 2px; width: 80px; overflow: hidden; }
+.tokens-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--cyan), var(--purple)); transition: width 0.3s; }
+
+.action-btn {
+  padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  cursor: pointer; font-family: var(--font); border: 1px solid var(--border);
+  background: transparent; color: var(--muted); transition: all 0.2s;
+}
+.action-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.action-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 999; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 28px; width: 100%; max-width: 420px;
+  transform: translateY(10px); transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-title { font-size: 16px; font-weight: 700; margin-bottom: 20px; }
+.modal-field { margin-bottom: 16px; }
+.modal-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; }
+.modal-select {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; color: var(--text);
+  font-family: var(--font); font-size: 13px; outline: none;
+}
+.modal-btns { display: flex; gap: 8px; margin-top: 20px; }
+.modal-btn {
+  flex: 1; padding: 10px; border-radius: 8px; font-size: 13px;
+  font-weight: 600; cursor: pointer; font-family: var(--font); transition: all 0.2s;
+}
+.modal-btn.cancel { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.modal-btn.confirm { background: linear-gradient(135deg, var(--cyan), var(--purple)); border: none; color: #000; }
+.modal-btn.cancel:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+
+/* ── LOADING ── */
+.loading {
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px; color: var(--muted); font-size: 13px; gap: 10px;
+}
+.spinner {
+  width: 18px; height: 18px; border: 2px solid var(--border);
+  border-top-color: var(--cyan); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── ATIVIDADE RECENTE ── */
+.activity-list { display: flex; flex-direction: column; gap: 2px; }
+.activity-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 8px; transition: background 0.15s;
+}
+.activity-item:hover { background: rgba(255,255,255,0.02); }
+.activity-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.activity-dot.gratuito { background: var(--muted); }
+.activity-dot.start    { background: var(--cyan); }
+.activity-dot.pro      { background: #00b4b4; }
+.activity-dot.elite    { background: var(--purple); }
+.activity-info { flex: 1; }
+.activity-nome { font-size: 13px; font-weight: 500; }
+.activity-email { font-size: 11px; color: var(--muted); }
+.activity-time { font-size: 11px; color: var(--muted); font-family: var(--mono); flex-shrink: 0; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } .planos-grid { grid-template-columns: 1fr; } }
+.feedback-card {
+  padding: 16px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface2); margin-bottom: 10px;
+}
+.feedback-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.feedback-tipo-tag {
+  padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+}
+.feedback-tipo-tag.sugestao { background: rgba(0,212,212,0.1); color: var(--cyan); border: 1px solid rgba(0,212,212,0.3); }
+.feedback-tipo-tag.reclamacao { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.feedback-tipo-tag.elogio { background: rgba(255,200,0,0.1); color: #fbbf24; border: 1px solid rgba(255,200,0,0.3); }
+.feedback-stars-display { color: #fbbf24; font-size: 14px; letter-spacing: 1px; }
+.feedback-card-user { font-size: 12px; color: var(--muted); margin-left: auto; }
+.feedback-card-msg { font-size: 14px; color: var(--text); line-height: 1.5; }
+.feedback-card-date { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+  /* ── Alertas Câmbio ── */
+  .alerta-dolar {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+  .alerta-dolar-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .alerta-dolar-titulo { font-size:14px; font-weight:700; color:var(--text); }
+  .alerta-dolar-cotacao { font-size:28px; font-weight:800; color:var(--cyan); }
+  .alerta-dolar-variacao { font-size:13px; font-weight:600; padding:3px 10px; border-radius:20px; }
+  .var-alta { background:rgba(239,68,68,0.15); color:#ef4444; }
+  .var-baixa { background:rgba(34,197,94,0.15); color:#22c55e; }
+  .alerta-dolar-info { display:flex; gap:20px; font-size:12px; color:var(--muted); margin-top:8px; }
+  .alerta-historico { margin-top:12px; }
+  .alerta-historico-item { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
+  .alerta-badge-critico { background:rgba(239,68,68,0.15); border:1px solid #ef4444; color:#ef4444; font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; }
+
+  /* ── Suporte IA ── */
+  .suporte-chat { display:flex; flex-direction:column; height:500px; background:var(--surface2); border-radius:12px; border:1px solid var(--border); overflow:hidden; }
+  .suporte-msgs { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .suporte-msg { max-width:85%; padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5; }
+  .suporte-msg.user { background:var(--cyan); color:#000; align-self:flex-end; border-bottom-right-radius:4px; }
+  .suporte-msg.ia { background:var(--surface); color:var(--text); align-self:flex-start; border-bottom-left-radius:4px; }
+  .suporte-msg.ia b { color:var(--cyan); }
+  .suporte-input-area { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); }
+  .suporte-input { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 14px; color:var(--text); font-size:13px; outline:none; }
+  .suporte-input:focus { border-color:var(--cyan); }
+  .suporte-send { background:var(--cyan); color:#000; border:none; border-radius:10px; padding:10px 18px; font-weight:700; cursor:pointer; font-size:13px; }
+  .suporte-send:disabled { opacity:0.5; cursor:not-allowed; }
+  .suporte-typing { color:var(--muted); font-size:12px; font-style:italic; padding:4px 0; }
+  .suporte-ctx { font-size:11px; color:var(--muted); padding:8px 16px; border-bottom:1px solid var(--border); background:var(--surface); }
+
+  
+  /* ── Alertas Câmbio ── */
+  .alerta-dolar { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:16px 20px; margin-bottom:16px; }
+  .alerta-dolar-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .alerta-dolar-titulo { font-size:14px; font-weight:700; color:var(--text); }
+  .alerta-dolar-cotacao { font-size:28px; font-weight:800; color:var(--cyan); }
+  .alerta-dolar-variacao { font-size:13px; font-weight:600; padding:3px 10px; border-radius:20px; }
+  .var-alta { background:rgba(239,68,68,0.15); color:#ef4444; }
+  .var-baixa { background:rgba(34,197,94,0.15); color:#22c55e; }
+  .alerta-dolar-info { display:flex; gap:20px; font-size:12px; color:var(--muted); margin-top:8px; flex-wrap:wrap; }
+
+  /* ── Suporte IA ── */
+  .suporte-chat { display:flex; flex-direction:column; height:500px; background:var(--surface2); border-radius:12px; border:1px solid var(--border); overflow:hidden; }
+  .suporte-msgs { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .suporte-msg { max-width:85%; padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5; }
+  .suporte-msg.user { background:var(--cyan); color:#000; align-self:flex-end; border-bottom-right-radius:4px; }
+  .suporte-msg.ia { background:var(--surface); color:var(--text); align-self:flex-start; border-bottom-left-radius:4px; }
+  .suporte-msg.ia b { color:var(--cyan); }
+  .suporte-input-area { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); }
+  .suporte-input { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 14px; color:var(--text); font-size:13px; outline:none; font-family:var(--font); }
+  .suporte-input:focus { border-color:var(--cyan); }
+  .suporte-send { background:var(--cyan); color:#000; border:none; border-radius:10px; padding:10px 18px; font-weight:700; cursor:pointer; font-size:13px; font-family:var(--font); }
+  .suporte-send:disabled { opacity:0.5; cursor:not-allowed; }
+  .suporte-ctx { font-size:11px; color:var(--muted); padding:8px 16px; border-bottom:1px solid var(--border); background:var(--surface); }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">Atria AI</div>
+    <div class="login-sub">Painel Administrativo</div>
+    <label class="login-label">Chave de Acesso</label>
+    <input type="password" class="login-input" id="admin-key-input" placeholder="••••••••••••" onkeydown="if(event.key==='Enter')fazerLogin()"/>
+    <button class="login-btn" onclick="fazerLogin()">Entrar no Painel</button>
+    <div class="login-err" id="login-err">Chave inválida. Tente novamente.</div>
+  </div>
+</div>
+
+<!-- ADMIN -->
+<div id="admin-screen">
+  <div class="topbar">
+    <div class="topbar-logo">⬡ Atria AI Admin</div>
+    <div class="topbar-right">
+      <span class="topbar-badge" id="last-update">Carregando...</span>
+      <button class="logout-btn" onclick="logout()">Sair</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="tabs">
+      <button class="tab active" onclick="mudarTab('overview', this)">📊 Overview</button>
+      <button class="tab" onclick="mudarTab('usuarios', this)">👥 Usuários</button>
+      <button class="tab" onclick="mudarTab('ativos', this)">🔥 Mais Ativos</button>
+      <button class="tab" onclick="mudarTab('feedbacks', this)">💬 Feedbacks</button>
+      <button class="tab" onclick="mudarTab('dolar', this)">💵 Câmbio</button>
+      <button class="tab" onclick="mudarTab('suporte', this)">🤖 Suporte IA</button>
+    </div>
+
+    <!-- TAB: OVERVIEW -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="metrics-grid" id="metrics-grid">
+        <div class="loading"><div class="spinner"></div> Carregando...</div>
+      </div>
+      <div class="planos-grid" id="planos-grid"></div>
+      <div class="two-col">
+        <div>
+          <div class="section-title">Cadastros Recentes</div>
+          <div class="table-wrap">
+            <div class="activity-list" id="activity-list">
+              <div class="loading"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="section-title">Resumo de Receita</div>
+          <div class="table-wrap" style="padding:20px;">
+            <div id="receita-box"><div class="loading"><div class="spinner"></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: USUÁRIOS -->
+    <div class="tab-content" id="tab-usuarios">
+      <div class="table-wrap">
+        <div class="table-header">
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input class="table-search" id="busca-input" placeholder="🔍  Buscar por nome ou email..." oninput="buscarUsuarios()"/>
+            <select class="filter-select" id="filtro-plano" onchange="buscarUsuarios()">
+              <option value="">Todos os planos</option>
+              <option value="gratuito">Gratuito</option>
+              <option value="start">Start</option>
+              <option value="pro">Pro</option>
+              <option value="elite">Elite</option>
+            </select>
+          </div>
+          <button class="action-btn" onclick="carregarUsuarios()" style="color:var(--cyan);border-color:var(--cyan);">↻ Atualizar</button>
+        </div>
+        <div id="usuarios-table-body">
+          <div class="loading"><div class="spinner"></div> Carregando usuários...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: MAIS ATIVOS -->
+    <div class="tab-content" id="tab-ativos">
+      <div class="table-wrap">
+        <div id="ativos-table-body">
+          <div class="loading"><div class="spinner"></div> Carregando...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: FEEDBACKS -->
+    <div class="tab-content" id="tab-feedbacks">
+      <div class="table-wrap">
+        <div class="table-header">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="feedback-filtro-tipo" onchange="carregarFeedbacks()" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;">
+              <option value="">Todos os tipos</option>
+              <option value="sugestao">💡 Sugestões</option>
+              <option value="reclamacao">⚠️ Reclamações</option>
+              <option value="elogio">⭐ Elogios</option>
+            </select>
+          </div>
+        </div>
+        <div id="feedbacks-table-body">
+          <div class="loading"><div class="spinner"></div> Carregando...</div>
+        </div>
+      </div>
+    </div>
+
+  <!-- TAB: CÂMBIO -->
+  <div class="tab-content" id="tab-dolar">
+    <div class="section-title" style="margin-bottom:16px;">💵 Monitor de Câmbio USD/BRL</div>
+    <div class="alerta-dolar" id="dolar-card">
+      <div class="alerta-dolar-header">
+        <div>
+          <div class="alerta-dolar-titulo">Cotação atual</div>
+          <div class="alerta-dolar-cotacao" id="dolar-valor">—</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="alerta-dolar-variacao" id="dolar-variacao">carregando...</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;" id="dolar-data">—</div>
+        </div>
+      </div>
+      <div class="alerta-dolar-info">
+        <span>📅 Semana passada: <b id="dolar-semana-passada">—</b></span>
+        <span>📊 Variação 7 dias: <b id="dolar-var7">—</b></span>
+        <span>🔔 Alerta em: <b>+10% na semana</b></span>
+      </div>
+      <div id="dolar-alerta-critico" style="display:none;margin-top:12px;padding:10px 14px;background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:10px;color:#ef4444;font-weight:700;font-size:13px;">
+        ⚠️ ATENÇÃO: Dólar subiu mais de 10% esta semana! Considere reajustar os preços dos planos.
+      </div>
+      <div style="margin-top:16px;">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px;">IMPACTO NOS PLANOS</div>
+        <div id="dolar-impacto" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+      </div>
+    </div>
+    <button onclick="carregarDolar()" style="background:var(--cyan);color:#000;border:none;border-radius:10px;padding:10px 20px;font-weight:700;cursor:pointer;font-size:13px;margin-top:8px;">🔄 Atualizar cotação</button>
+  </div>
+
+  <!-- TAB: SUPORTE IA -->
+  <div class="tab-content" id="tab-suporte">
+    <div class="section-title" style="margin-bottom:4px;">🤖 Agente de Suporte</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">IA com contexto total da Atria AI — responde dúvidas, sugere respostas para usuários e diagnostica problemas.</p>
+    <div class="suporte-chat">
+      <div class="suporte-ctx" id="suporte-ctx">⚡ Contexto: Atria AI — planos Gratuito/Start/Pro/Elite, Cérebro, busca web, personas</div>
+      <div class="suporte-msgs" id="suporte-msgs">
+        <div class="suporte-msg ia">👋 Olá! Sou o agente de suporte da Atria AI. Posso ajudar com dúvidas de usuários, diagnosticar problemas e sugerir respostas. Como posso ajudar?</div>
+      </div>
+      <div class="suporte-input-area">
+        <input class="suporte-input" id="suporte-input" placeholder="Ex: usuário não consegue acessar o Cérebro..." onkeydown="if(event.key==='Enter' && !event.shiftKey) enviarSupporte()"/>
+        <button class="suporte-send" id="suporte-send" onclick="enviarSupporte()">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /.main -->
+</div><!-- /#admin-screen -->
+
+<!-- MODAL EDITAR USUÁRIO -->
+<div class="modal-overlay" id="modal-usuario">
+  <div class="modal">
+    <div class="modal-title" id="modal-titulo">Editar Usuário</div>
+    <div class="modal-field">
+      <label class="modal-label">Plano</label>
+      <select class="modal-select" id="modal-plano">
+        <option value="gratuito">Gratuito</option>
+        <option value="start">Start — R$47/mês</option>
+        <option value="pro">Pro — R$97/mês</option>
+        <option value="elite">Elite — R$299/mês</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Status</label>
+      <select class="modal-select" id="modal-ativo">
+        <option value="1">Ativo</option>
+        <option value="0">Bloqueado</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">🧠 Módulo Cérebro</label>
+      <select class="modal-select" id="modal-brain">
+        <option value="0">Inativo</option>
+        <option value="1">Ativo</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="modal-btn cancel" onclick="fecharModal()">Cancelar</button>
+      <button class="modal-btn confirm" onclick="salvarUsuario()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "https://atria-ai-backend.jonhyelson.workers.dev";
+let ADMIN_KEY = "";
+let usuarioEditando = null;
+let statsCache = null;
+
+// ── LOGIN ──────────────────────────────────────────────────────────
+async function fazerLogin() {
+  const key = document.getElementById("admin-key-input").value.trim();
+  if (!key) return;
+  const errEl = document.getElementById("login-err");
+  errEl.style.display = "none";
+
+  try {
+    const res = await fetch(API + "/admin/stats", {
+      headers: { "x-admin-key": key }
+    });
+    let data;
+    try { data = await res.json(); } catch(e) { data = {}; }
+
+    if (!res.ok) {
+      errEl.textContent = "Erro " + res.status + ": " + (data?.erro || "Chave inválida ou worker não atualizado");
+      errEl.style.display = "block";
+      return;
+    }
+    ADMIN_KEY = key;
+    statsCache = data.stats;
+    document.getElementById("login-screen").style.display = "none";
+    document.getElementById("admin-screen").style.display = "block";
+    renderOverview(data.stats);
+    carregarUsuarios();
+  } catch(e) {
+    errEl.textContent = "Erro de conexão: " + e.message + " — verifique se o worker está online";
+    errEl.style.display = "block";
+  }
+}
+
+function logout() {
+  ADMIN_KEY = "";
+  document.getElementById("admin-screen").style.display = "none";
+  document.getElementById("login-screen").style.display = "flex";
+  document.getElementById("admin-key-input").value = "";
+}
+
+// ── TABS ────────────────────────────────────────────────────────────
+function mudarTab(tab, el) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("tab-" + tab).classList.add("active");
+  if (tab === "ativos" && statsCache) renderAtivos(statsCache.mais_ativos);
+  if (tab === "feedbacks") carregarFeedbacks();
+  if (tab === "dolar") carregarDolar();
+  if (tab === "suporte") iniciarSuporteIA();
+}
+
+// ── FEEDBACKS ────────────────────────────────────────────────────────
+async function carregarFeedbacks() {
+  const tipo = document.getElementById("feedback-filtro-tipo")?.value || "";
+  const body = document.getElementById("feedbacks-table-body");
+  body.innerHTML = '<div class="loading"><div class="spinner"></div> Carregando...</div>';
+  try {
+    const url = API + "/admin/feedbacks" + (tipo ? "?tipo=" + tipo : "");
+    const res = await fetch(url, { headers: { "x-admin-key": ADMIN_KEY } });
+    const data = await res.json();
+    renderFeedbacks(data.feedbacks || []);
+  } catch(e) {
+    body.innerHTML = '<div class="loading">Erro ao carregar feedbacks.</div>';
+  }
+}
+
+function renderFeedbacks(feedbacks) {
+  const body = document.getElementById("feedbacks-table-body");
+  if (!feedbacks.length) {
+    body.innerHTML = '<div class="loading">Nenhum feedback ainda.</div>';
+    return;
+  }
+  const tipoLabel = { sugestao: "💡 Sugestão", reclamacao: "⚠️ Reclamação", elogio: "⭐ Elogio" };
+  body.innerHTML = feedbacks.map(f => {
+    const estrelas = "★".repeat(f.avaliacao || 0) + "☆".repeat(5 - (f.avaliacao || 0));
+    const data = new Date(f.criado_em).toLocaleString("pt-BR");
+    return `
+    <div class="feedback-card">
+      <div class="feedback-card-header">
+        <span class="feedback-tipo-tag ${f.tipo}">${tipoLabel[f.tipo] || f.tipo}</span>
+        <span class="feedback-stars-display">${estrelas}</span>
+        <span class="feedback-card-user">${f.nome || "Usuário"} · ${f.email || ""}</span>
+      </div>
+      <div class="feedback-card-msg">${f.mensagem}</div>
+      <div class="feedback-card-date">${data}</div>
+    </div>`;
+  }).join("");
+}
+
+// ── OVERVIEW ────────────────────────────────────────────────────────
+function renderOverview(stats) {
+  const agora = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  document.getElementById("last-update").textContent = "Atualizado às " + agora;
+
+  // Métricas principais
+  const mrr = stats.receita_mrr || 0;
+  document.getElementById("metrics-grid").innerHTML = `
+    <div class="metric-card">
+      <div class="metric-label">Total de Usuários</div>
+      <div class="metric-value cyan">${stats.usuarios.total}</div>
+      <div class="metric-sub">+${stats.usuarios.hoje} hoje</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Mensagens Hoje</div>
+      <div class="metric-value purple">${stats.conversas.mensagens_hoje}</div>
+      <div class="metric-sub">${stats.conversas.total_mensagens} no total</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">MRR Estimado</div>
+      <div class="metric-value green">R$${mrr}</div>
+      <div class="metric-sub">planos pagos ativos</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Cadastros Hoje</div>
+      <div class="metric-value orange">${stats.usuarios.hoje}</div>
+      <div class="metric-sub">novos usuários</div>
+    </div>
+  `;
+
+  // Breakdown por plano
+  const porPlano = {};
+  (stats.usuarios.por_plano || []).forEach(p => porPlano[p.plano] = p.total);
+  document.getElementById("planos-grid").innerHTML = `
+    <div class="plano-card">
+      <div>
+        <div class="metric-label" style="margin-bottom:4px;">Gratuito</div>
+        <div class="plano-count free">${porPlano.gratuito || 0}</div>
+      </div>
+      <div style="font-size:28px;">🆓</div>
+    </div>
+    <div class="plano-card">
+      <div>
+        <div class="metric-label" style="margin-bottom:4px;">Start — R$47</div>
+        <div class="plano-count start">${porPlano.start || 0}</div>
+      </div>
+      <div style="font-size:28px;">💼</div>
+    </div>
+    <div class="plano-card">
+      <div>
+        <div class="metric-label" style="margin-bottom:4px;">Pro — R$97</div>
+        <div class="plano-count pro">${porPlano.pro || 0}</div>
+      </div>
+      <div style="font-size:28px;">🚀</div>
+    </div>
+    <div class="plano-card">
+      <div>
+        <div class="metric-label" style="margin-bottom:4px;">Elite — R$299</div>
+        <div class="plano-count elite">${porPlano.elite || 0}</div>
+      </div>
+      <div style="font-size:28px;">👑</div>
+    </div>
+    <div class="plano-card">
+      <div>
+        <div class="metric-label" style="margin-bottom:4px;">🧠 Cérebro — R$9,99</div>
+        <div class="plano-count brain">${stats.cerebro?.ativos || 0}</div>
+      </div>
+      <div style="font-size:28px;">🧠</div>
+    </div>
+  `;
+
+  // Cadastros recentes
+  const lista = document.getElementById("activity-list");
+  const recentes = stats.cadastros_recentes || [];
+  if (!recentes.length) { lista.innerHTML = '<div class="loading">Nenhum cadastro ainda.</div>'; return; }
+  lista.innerHTML = recentes.map(u => `
+    <div class="activity-item">
+      <div class="activity-dot ${u.plano}"></div>
+      <div class="activity-info">
+        <div class="activity-nome">${escHtml(u.nome)}</div>
+        <div class="activity-email">${escHtml(u.email)}</div>
+      </div>
+      <span class="badge ${u.plano}">${u.plano}</span>
+      <div class="activity-time">${formatData(u.criado_em)}</div>
+    </div>
+  `).join("");
+
+  // Receita
+  const start  = porPlano.start || 0;
+  const pro    = porPlano.pro   || 0;
+  const elite  = porPlano.elite || 0;
+  const brains = stats.cerebro?.ativos || 0;
+  document.getElementById("receita-box").innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:13px;color:var(--muted);">Plano Start × ${start}</span>
+        <span style="font-family:var(--mono);color:var(--cyan);">R$${start * 47}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;color:var(--muted);">Plano Pro × ${pro}</span>
+        <span style="font-family:var(--mono);color:#00b4b4;">R$${pro * 97}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;color:var(--muted);">Plano Elite × ${elite}</span>
+        <span style="font-family:var(--mono);color:var(--purple);">R$${elite * 299}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;color:var(--muted);">🧠 Cérebro × ${brains}</span>
+        <span style="font-family:var(--mono);color:#00e676;">R$${(brains * 9.99).toFixed(2)}</span>
+      </div>
+      <div style="height:1px;background:var(--border);"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;font-weight:700;">MRR Total</span>
+        <span style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green);">R$${mrr.toFixed(2)}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ── USUÁRIOS ────────────────────────────────────────────────────────
+async function carregarUsuarios() {
+  const busca = document.getElementById("busca-input")?.value || "";
+  const plano = document.getElementById("filtro-plano")?.value || "";
+  document.getElementById("usuarios-table-body").innerHTML = '<div class="loading"><div class="spinner"></div> Carregando...</div>';
+
+  let url = API + "/admin/usuarios?";
+  if (busca) url += "q=" + encodeURIComponent(busca) + "&";
+  if (plano) url += "plano=" + plano;
+
+  try {
+    const res = await fetch(url, { headers: { "x-admin-key": ADMIN_KEY } });
+    const data = await res.json();
+    renderTabelaUsuarios(data.usuarios || []);
+  } catch(e) {
+    document.getElementById("usuarios-table-body").innerHTML = '<div class="loading">Erro ao carregar.</div>';
+  }
+}
+
+let buscaTimer;
+function buscarUsuarios() {
+  clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(carregarUsuarios, 400);
+}
+
+function renderTabelaUsuarios(usuarios) {
+  if (!usuarios.length) {
+    document.getElementById("usuarios-table-body").innerHTML = '<div class="loading">Nenhum usuário encontrado.</div>';
+    return;
+  }
+  document.getElementById("usuarios-table-body").innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Usuário</th>
+          <th>Plano</th>
+          <th>🧠 Cérebro</th>
+          <th>🎁 Indicações</th>
+          <th>Tokens</th>
+          <th>Perguntas Hoje</th>
+          <th>Status</th>
+          <th>Cadastro</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${usuarios.map(u => {
+          const pct = Math.min(100, Math.round((u.tokens_usados / u.tokens_limite) * 100)) || 0;
+          return `
+            <tr>
+              <td>
+                <div style="font-weight:500;">${escHtml(u.nome)}</div>
+                <div style="font-size:11px;color:var(--muted);">${escHtml(u.email)}</div>
+              </td>
+              <td><span class="badge ${u.plano}">${u.plano}</span></td>
+              <td>${u.has_brain ? '<span class="badge brain">🧠 Ativo</span>' : '<span style="color:var(--muted);font-size:12px;">—</span>'}</td>
+              <td style="font-family:var(--mono);font-size:13px;color:var(--cyan);">${u.indicacoes_convertidas || 0}</td>
+              <td>
+                <div class="tokens-bar-wrap">
+                  <div class="tokens-bar"><div class="tokens-bar-fill" style="width:${pct}%"></div></div>
+                  <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">${pct}%</span>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${fmtNum(u.tokens_usados)} / ${fmtNum(u.tokens_limite)}</div>
+              </td>
+              <td style="font-family:var(--mono);font-size:13px;">${u.perguntas_hoje}</td>
+              <td><span class="badge ${u.ativo ? 'ativo' : 'inativo'}">${u.ativo ? 'Ativo' : 'Bloqueado'}</span></td>
+              <td style="font-size:12px;color:var(--muted);">${formatData(u.criado_em)}</td>
+              <td>
+                <button class="action-btn" onclick="abrirModal(${u.id}, '${u.nome}', '${u.plano}', ${u.ativo}, ${u.has_brain})">Editar</button>
+              </td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+// ── MAIS ATIVOS ──────────────────────────────────────────────────────
+function renderAtivos(ativos) {
+  if (!ativos || !ativos.length) {
+    document.getElementById("ativos-table-body").innerHTML = '<div class="loading">Sem dados ainda.</div>';
+    return;
+  }
+  document.getElementById("ativos-table-body").innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Usuário</th>
+          <th>Plano</th>
+          <th>Total de Mensagens</th>
+          <th>Perguntas Hoje</th>
+          <th>Tokens Usados</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ativos.map((u, i) => `
+          <tr>
+            <td style="font-family:var(--mono);color:var(--muted);">${i + 1}</td>
+            <td>
+              <div style="font-weight:500;">${escHtml(u.nome)}</div>
+              <div style="font-size:11px;color:var(--muted);">${escHtml(u.email)}</div>
+            </td>
+            <td><span class="badge ${u.plano}">${u.plano}</span></td>
+            <td style="font-family:var(--mono);color:var(--cyan);">${fmtNum(u.total_msgs)}</td>
+            <td style="font-family:var(--mono);">${u.perguntas_hoje}</td>
+            <td style="font-family:var(--mono);color:var(--purple);">${fmtNum(u.tokens_usados)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+// ── MODAL ────────────────────────────────────────────────────────────
+function abrirModal(id, nome, plano, ativo, has_brain) {
+  usuarioEditando = id;
+  document.getElementById("modal-titulo").textContent = "Editar: " + nome;
+  document.getElementById("modal-plano").value = plano;
+  document.getElementById("modal-ativo").value = ativo ? "1" : "0";
+  document.getElementById("modal-brain").value = has_brain ? "1" : "0";
+  document.getElementById("modal-usuario").classList.add("open");
+}
+
+function fecharModal() {
+  document.getElementById("modal-usuario").classList.remove("open");
+  usuarioEditando = null;
+}
+
+async function salvarUsuario() {
+  if (!usuarioEditando) return;
+  const plano     = document.getElementById("modal-plano").value;
+  const ativo     = document.getElementById("modal-ativo").value === "1";
+  const has_brain = document.getElementById("modal-brain").value === "1";
+
+  try {
+    await fetch(API + "/admin/usuarios/" + usuarioEditando, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-admin-key": ADMIN_KEY },
+      body: JSON.stringify({ plano, ativo, has_brain }),
+    });
+    fecharModal();
+    carregarUsuarios();
+  } catch(e) {
+    alert("Erro ao salvar.");
+  }
+}
+
+document.getElementById("modal-usuario").addEventListener("click", function(e) {
+  if (e.target === this) fecharModal();
+});
+
+// ── UTILS ────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function fmtNum(n) {
+  return Number(n||0).toLocaleString("pt-BR");
+}
+function formatData(str) {
+  if (!str) return "—";
+  const d = new Date(str);
+  return d.toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"2-digit" });
+}
+
+// Auto-refresh a cada 60s
+setInterval(async () => {
+  if (!ADMIN_KEY) return;
+  try {
+    const res = await fetch(API + "/admin/stats", { headers: { "x-admin-key": ADMIN_KEY } });
+    const data = await res.json();
+    if (data.ok) { statsCache = data.stats; renderOverview(data.stats); }
+  } catch(e) {}
+}, 60000);
+
+// ── CÂMBIO USD/BRL ───────────────────────────────────────────────────
+async function carregarDolar() {
+  document.getElementById("dolar-valor").textContent = "...";
+  document.getElementById("dolar-variacao").textContent = "buscando...";
+  try {
+    const res = await fetch("https://economia.awesomeapi.com.br/json/daily/USD-BRL/7");
+    const data = await res.json();
+    if (!data || !data.length) throw new Error("sem dados");
+
+    const hoje   = parseFloat(data[0].bid);
+    const semana = parseFloat(data[data.length - 1].bid);
+    const variacao = ((hoje - semana) / semana) * 100;
+    const data_str = new Date(parseInt(data[0].timestamp) * 1000).toLocaleDateString("pt-BR");
+
+    document.getElementById("dolar-valor").textContent = `R$ ${hoje.toFixed(4)}`;
+    document.getElementById("dolar-data").textContent = `Atualizado: ${data_str}`;
+    document.getElementById("dolar-semana-passada").textContent = `R$ ${semana.toFixed(4)}`;
+
+    const sinal = variacao >= 0 ? "+" : "";
+    const varEl = document.getElementById("dolar-variacao");
+    varEl.textContent = `${sinal}${variacao.toFixed(2)}% na semana`;
+    varEl.className = "alerta-dolar-variacao " + (variacao >= 5 ? "var-alta" : "var-baixa");
+    document.getElementById("dolar-var7").textContent = `${sinal}${variacao.toFixed(2)}%`;
+    document.getElementById("dolar-var7").style.color = variacao >= 5 ? "#ef4444" : "#22c55e";
+
+    document.getElementById("dolar-alerta-critico").style.display = variacao >= 10 ? "block" : "none";
+
+    const planos = [{ nome:"Start", preco:47 },{ nome:"Pro", preco:97 },{ nome:"Elite", preco:297 }];
+    document.getElementById("dolar-impacto").innerHTML = planos.map(p => {
+      const novo = (p.preco * (1 + variacao/100)).toFixed(0);
+      const diff = novo - p.preco;
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;min-width:120px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${p.nome}</div>
+        <div style="font-size:18px;font-weight:700;">R$${p.preco}</div>
+        ${diff > 0 ? `<div style="font-size:11px;color:#ef4444;margin-top:2px;">→ R$${novo} (+R$${diff})</div>` : '<div style="font-size:11px;color:#22c55e;margin-top:2px;">✓ preço ok</div>'}
+      </div>`;
+    }).join("");
+  } catch(e) {
+    document.getElementById("dolar-valor").textContent = "Erro";
+    document.getElementById("dolar-variacao").textContent = "Falha ao buscar cotação";
+  }
+}
+
+// ── AGENTE DE SUPORTE IA ─────────────────────────────────────────────
+let suporteMsgs = [];
+let suporteIniciado = false;
+
+const SUPORTE_SYSTEM = `Você é o agente de suporte interno da Atria AI.
+PLATAFORMA: IA brasileira com planos Gratuito/Start(R$47)/Pro(R$97)/Elite(R$297).
+Módulos: Cérebro (memória vetorial), Busca web, Personas (Advogado/Contador/Copywriter/Coach/Dev/Empreendedor), PWA.
+Pagamento via PIX. Backend: Cloudflare Workers + D1 + Vectorize + R2. API: Anthropic.
+INSTRUÇÕES: Seja direto. Sugira texto pronto para responder ao usuário quando pedido.
+Identifique se é bug técnico, dúvida de uso ou problema de pagamento. Sempre em português.`;
+
+function iniciarSuporteIA() {
+  if (suporteIniciado) return;
+  suporteIniciado = true;
+  suporteMsgs = [];
+}
+
+async function enviarSupporte() {
+  const input = document.getElementById("suporte-input");
+  const texto = input.value.trim();
+  if (!texto) return;
+  const btn = document.getElementById("suporte-send");
+  input.value = "";
+  btn.disabled = true;
+
+  adicionarMsgSuporte("user", texto);
+  suporteMsgs.push({ role: "user", content: texto });
+
+  const typing = document.createElement("div");
+  typing.className = "suporte-typing";
+  typing.id = "suporte-typing";
+  typing.textContent = "🤖 Agente pensando...";
+  document.getElementById("suporte-msgs").appendChild(typing);
+  scrollSupporte();
+
+  try {
+    const res = await fetch(API + "/suporte-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-key": ADMIN_KEY },
+      body: JSON.stringify({ mensagens: suporteMsgs }),
+    });
+    document.getElementById("suporte-typing")?.remove();
+    if (!res.ok) throw new Error("erro");
+    const data = await res.json();
+    const resposta = data.resposta || "Erro ao obter resposta.";
+    suporteMsgs.push({ role: "assistant", content: resposta });
+    adicionarMsgSuporte("ia", resposta);
+  } catch(e) {
+    document.getElementById("suporte-typing")?.remove();
+    adicionarMsgSuporte("ia", "⚠️ Erro ao conectar. Tente novamente.");
+  }
+  btn.disabled = false;
+  input.focus();
+}
+
+function adicionarMsgSuporte(tipo, texto) {
+  const msgs = document.getElementById("suporte-msgs");
+  const div = document.createElement("div");
+  div.className = "suporte-msg " + tipo;
+  div.innerHTML = texto.replace(/
+/g, "<br>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  msgs.appendChild(div);
+  scrollSupporte();
+}
+
+function scrollSupporte() {
+  const m = document.getElementById("suporte-msgs");
+  if (m) m.scrollTop = m.scrollHeight;
+}
+
+
+</script>
+</body>
+</html>

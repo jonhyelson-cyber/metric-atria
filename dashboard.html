@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATRIA METRIC | Dashboard</title>
+    
+    <!-- CSS - MESMA PASTA -->
+    <link rel="stylesheet" href="dashboard.css">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+    <!-- MENU LATERAL -->
+    <div class="sidebar">
+        <div class="sidebar-logo">
+            <div>AM</div>
+            <span>ATRIA METRIC</span>
+        </div>
+        
+        <!-- Menu será carregado via JS -->
+        <div id="sidebar-menu"></div>
+        
+        <div class="user-info-sidebar">
+            <div class="user-info">
+                <i class="fas fa-user-circle"></i>
+                <div>
+                    <p class="user-name" id="userNameSidebar">...</p>
+                    <p class="user-pixel">Pixel: <span id="pixelDisplaySidebar">...</span></p>
+                </div>
+            </div>
+            <div class="pixel-status" id="pixelStatus">🔴 Verificando...</div>
+            <button onclick="logout()" class="logout-btn">
+                <i class="fas fa-sign-out-alt"></i> Sair
+            </button>
+        </div>
+    </div>
+
+    <!-- CONTEÚDO PRINCIPAL -->
+    <div class="main-content">
+        <!-- HEADER -->
+        <div class="header">
+            <h1 id="currentPageTitle">Visão Geral</h1>
+            <div class="header-actions">
+                <a href="https://atriapay.new.paytime.com.br/register" target="_blank" class="btn-atriapay">
+                    <i class="fas fa-credit-card"></i> Abrir conta AtraiaPay
+                </a>
+                <button onclick="refreshData()" class="btn-refresh">
+                    <i class="fas fa-sync-alt" id="refreshIcon"></i> Atualizar
+                </button>
+                <div class="periodo-buttons">
+                    <button onclick="setPeriodo('hoje')" class="periodo-btn active">Hoje</button>
+                    <button onclick="setPeriodo('7d')" class="periodo-btn">7 dias</button>
+                    <button onclick="setPeriodo('30d')" class="periodo-btn">30 dias</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- BOTÕES DE EXPORTAÇÃO -->
+        <div class="export-buttons">
+            <button onclick="exportarCSV()" class="btn-export csv">
+                <i class="fas fa-file-csv"></i> Exportar CSV
+            </button>
+            <button onclick="exportarPDF()" class="btn-export pdf">
+                <i class="fas fa-file-pdf"></i> Exportar PDF
+            </button>
+        </div>
+
+        <!-- FILTROS AVANÇADOS -->
+        <div class="filter-section" id="filtrosAvancados"></div>
+
+        <!-- CARDS PRINCIPAIS -->
+        <div class="cards-grid" id="cards-principais">
+            <!-- Cards serão carregados via JS -->
+        </div>
+
+        <!-- GRÁFICO PRINCIPAL -->
+        <div class="chart-container">
+            <canvas id="mainChart"></canvas>
+        </div>
+
+        <!-- ÁREA DAS ABAS -->
+        <div id="conteudo-aba"></div>
+    </div>
+
+    <!-- BOTÃO FLUTUANTE DO PIXEL -->
+    <div class="pixel-float-btn" onclick="togglePixelCard()">
+        <i class="fas fa-code"></i>
+    </div>
+
+    <!-- CARD DO PIXEL -->
+    <div class="pixel-card" id="pixelCard">
+        <div class="pixel-card-header">
+            <h3><i class="fas fa-code"></i> Instale o Pixel</h3>
+            <button onclick="togglePixelCard()"><i class="fas fa-times"></i></button>
+        </div>
+        <p class="pixel-description">Copie antes do &lt;/body&gt;:</p>
+        <div class="pixel-code-box">
+            <code id="pixelCodeDisplay">
+                &lt;script src="https://atria-7ja.pages.dev/pixel.js" data-id="<span id="pixelIdDisplay">carregando...</span>"&gt;&lt;/script&gt;
+            </code>
+            <button class="copy-btn" onclick="copiarPixel()">Copiar</button>
+        </div>
+        <a href="https://atriapay.new.paytime.com.br/register" target="_blank" class="btn-atriapay-block">
+            <i class="fas fa-credit-card"></i> Criar conta AtraiaPay
+        </a>
+    </div>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loading-spinner"></div>
+        <p>Carregando...</p>
+    </div>
+
+    <!-- ALERT CONTAINER -->
+    <div id="alertContainer" class="alert-container"></div>
+
+    <!-- SCRIPTS - TODOS NA MESMA PASTA -->
+    <script type="module" src="firebase.js"></script>
+    <script type="module" src="utils.js"></script>
+    <script type="module" src="auth.js"></script>
+    <script type="module" src="dashboard.js"></script>
+</body>
+</html>
