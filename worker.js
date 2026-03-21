@@ -248,7 +248,7 @@ async function gerarImagemFlux(prompt, estilo, env) {
   
   const fullPrompt = `${prompt}. ${atriaStyle}`;
   
-  console.log("[Flux] Prompt enviado:", fullPrompt);
+  console.log("[Flux] Prompt:", fullPrompt);
   
   // Chamada para o modelo Flux.1 Schnell
   const response = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", {
@@ -259,48 +259,104 @@ async function gerarImagemFlux(prompt, estilo, env) {
     height: 1024
   });
   
-  console.log("[Flux] Tipo da resposta:", typeof response);
-  console.log("[Flux] Chaves da resposta:", response ? Object.keys(response).join(", ") : "resposta vazia");
+  console.log("[Flux] Tipo de resposta:", typeof response);
+  console.log("[Flux] Response keys:", response ? Object.keys(response).join(", ") : "empty");
   
-  // Extrai a imagem da resposta
-  let imageBuffer = null;
+  // Flux retorna a imagem de diferentes formas possíveis
+  let imageData = null;
   
+  // Tenta extrair a imagem da resposta
   if (response && response.image) {
-    imageBuffer = response.image;
+    imageData = response.image;
     console.log("[Flux] Imagem encontrada em response.image");
   } else if (response && response.output && response.output.image) {
-    imageBuffer = response.output.image;
+    imageData = response.output.image;
     console.log("[Flux] Imagem encontrada em response.output.image");
-  } else if (response && typeof response === 'object' && !response.image) {
-    // Pode ser que a resposta seja o próprio buffer
-    imageBuffer = response;
-    console.log("[Flux] Tentando usar a própria resposta como buffer");
+  } else if (response && typeof response === 'object') {
+    // Pode ser que a resposta seja um array com a imagem
+    imageData = response;
+    console.log("[Flux] Usando a própria resposta como imagem");
   }
   
-  if (!imageBuffer) {
-    console.error("[Flux] Resposta completa:", JSON.stringify(response).substring(0, 500));
-    throw new Error("Flux não retornou imagem válida.");
+  if (!imageData) {
+    console.error("[Flux] Nenhum dado de imagem encontrado");
+    throw new Error("Flux não retornou imagem.");
+  }
+  
+  // Verifica o tipo de dado recebido
+  let uint8Array;
+  if (imageData instanceof ArrayBuffer) {
+    uint8Array = new Uint8Array(imageData);
+    console.log("[Flux] Imagem é ArrayBuffer");
+  } else if (imageData instanceof Uint8Array) {
+    uint8Array = imageData;
+    console.log("[Flux] Imagem é Uint8Array");
+  } else if (typeof imageData === 'string') {
+    // Se for string, pode ser base64 já
+    if (imageData.startsWith('iVBOR') || imageData.startsWith('/9j/')) {
+      console.log("[Flux] Imagem já está em base64 válido");
+      return imageData;
+    }
+    // Se não, tenta converter
+    try {
+      // Converte string para Uint8Array
+      const encoder = new TextEncoder();
+      uint8Array = encoder.encode(imageData);
+      console.log("[Flux] String convertida para Uint8Array");
+    } catch(e) {
+      console.error("[Flux] Não foi possível converter string para Uint8Array");
+      throw new Error("Formato de imagem não reconhecido");
+    }
+  } else {
+    console.error("[Flux] Tipo de imagem não suportado:", typeof imageData);
+    throw new Error("Tipo de imagem não suportado");
+  }
+  
+  // Verifica os primeiros bytes para identificar o formato
+  const firstBytes = Array.from(uint8Array.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+  console.log("[Flux] Primeiros bytes da imagem:", firstBytes);
+  
+  // Verifica se é PNG (89 50 4E 47)
+  const isPNG = uint8Array[0] === 0x89 && uint8Array[1] === 0x50 && uint8Array[2] === 0x4E && uint8Array[3] === 0x47;
+  
+  // Verifica se é JPEG (FF D8 FF)
+  const isJPEG = uint8Array[0] === 0xFF && uint8Array[1] === 0xD8 && uint8Array[2] === 0xFF;
+  
+  if (!isPNG && !isJPEG) {
+    console.warn("[Flux] Formato não identificado. Os primeiros bytes não correspondem a PNG ou JPEG.");
+    
+    // Para debugging, vamos logar os primeiros 50 caracteres como string
+    const strPreview = Array.from(uint8Array.slice(0, 50)).map(b => String.fromCharCode(b)).join('');
+    console.log("[Flux] Preview do conteúdo (string):", strPreview.substring(0, 100));
+    
+    // Se os primeiros bytes são todos AAAAA, pode ser que a imagem esteja corrompida
+    if (firstBytes.includes('41') && firstBytes.split(' ').every(b => b === '41')) {
+      throw new Error("Flux retornou dados corrompidos (todos bytes são 0x41). Tente novamente com outro prompt.");
+    }
   }
   
   // Converte para base64
   let base64;
   try {
-    const uint8Array = imageBuffer instanceof ArrayBuffer 
-      ? new Uint8Array(imageBuffer)
-      : imageBuffer;
-    
-    // Converte Uint8Array para string base64
     let binary = '';
     for (let i = 0; i < uint8Array.length; i++) {
       binary += String.fromCharCode(uint8Array[i]);
     }
     base64 = btoa(binary);
+    console.log("[Flux] Conversão concluída. Tamanho base64:", base64.length);
     
-    console.log("[Flux] Imagem convertida com sucesso. Tamanho base64:", base64.length);
+    // Verifica se o base64 parece válido (começa com cabeçalho PNG/JPEG)
+    const base64Start = base64.substring(0, 20);
+    console.log("[Flux] Início do base64:", base64Start);
+    
+    // Verifica se o base64 tem tamanho mínimo razoável (imagem 1024x1024 PNG ~ 500KB+)
+    if (base64.length < 10000) {
+      console.warn("[Flux] Imagem muito pequena:", base64.length, "caracteres");
+    }
     
   } catch (e) {
-    console.error("[Flux] Erro na conversão:", e.message);
-    throw new Error("Erro ao converter imagem para base64: " + e.message);
+    console.error("[Flux] Erro na conversão:", e);
+    throw new Error("Erro ao converter imagem: " + e.message);
   }
   
   return base64;
